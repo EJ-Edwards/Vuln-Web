@@ -96,6 +96,33 @@ python app.py
 - Admin panel shows plaintext passwords
 - Product detail pages show internal notes
 
+### 17. SSRF — Server-Side Request Forgery (CRITICAL)
+- **URL Fetcher** (`/fetch`): Server fetches any URL — can reach internal services, cloud metadata (`169.254.169.254`), local files (`file://`)
+
+### 18. JWT Token Forgery (CRITICAL)
+- **JWT API** (`/jwt`, `/api/jwt/*`): Weak secret (`"secret"`), accepts `"none"` algorithm — forge admin tokens without a valid signature
+
+### 19. Blind SQL Injection (HIGH)
+- **Username Checker** (`/blind`): Boolean-based blind SQLi — only true/false response, extract data character by character
+
+### 20. Mass Assignment / Privilege Escalation (CRITICAL)
+- **Registration** (`/register`): Server accepts hidden `role` parameter — register as admin by adding `role=admin` to the request
+
+### 21. CRLF / HTTP Header Injection (MEDIUM)
+- **Language Preference** (`/header`): User input injected into response headers — inject Set-Cookie, redirect, or XSS via CRLF
+
+### 22. Weak Cryptography (HIGH)
+- **Crypto Vault** (`/crypto`): "Military Grade AES-256" is actually base64, MD5 hashes, ROT13, single-byte XOR — all trivially broken
+
+### 23. Race Condition (HIGH)
+- **Coupon Redemption** (`/coupon`): Check-then-act pattern with processing delay — redeem one-time coupon multiple times via concurrent requests
+
+### 24. Host Header Injection (CRITICAL)
+- **Password Reset** (`/reset`): Reset link built from `Host` header — inject malicious host to steal reset tokens
+
+### 25. ReDoS — Regular Expression DoS (HIGH)
+- **Regex Tester** (`/regex`): User-controlled regex patterns — cause catastrophic backtracking (e.g., `^(a+)+$` with `aaaaaa!`)
+
 ## Practice Tips
 
 1. **Start with reconnaissance**: Check `/robots.txt`, try `/api/users`

@@ -21,13 +21,29 @@ Vulnerabilities included:
   12. Server-Side Template Injection (SSTI)
   13. Insecure Deserialization
   14. XML External Entity (XXE)
+  15. Broken Access Control (Admin panel)
+  16. SSRF — Server-Side Request Forgery (URL fetcher)
+  17. JWT Forgery (Weak secret, "none" algorithm)
+  18. Blind SQL Injection (Boolean-based)
+  19. Mass Assignment / Privilege Escalation (Registration)
+  20. CRLF / HTTP Header Injection
+  21. Weak Cryptography (Broken "encryption")
+  22. Race Condition (Coupon redemption)
+  23. Host Header Injection (Password reset)
+  24. Regex DoS (ReDoS)
 """
 
 import os
+import re
+import json
 import sqlite3
 import subprocess
 import pickle
 import base64
+import hashlib
+import hmac
+import time
+import urllib.request
 from xml.etree import ElementTree as ET
 
 from flask import (
@@ -41,6 +57,8 @@ from flask import (
     send_file,
     g,
     flash,
+    jsonify,
+    Response,
 )
 
 from setup_db import init_db, DB_PATH
@@ -148,6 +166,12 @@ BASE_TEMPLATE = """
             <a href="/notes">Notes</a>
             <a href="/products">Products</a>
             <a href="/profile">Profile</a>
+            <a href="/fetch">Fetch</a>
+            <a href="/jwt">JWT</a>
+            <a href="/blind">Blind</a>
+            <a href="/register">Register</a>
+            <a href="/crypto">Crypto</a>
+            <a href="/coupon">Coupon</a>
             <a href="/admin">Admin</a>
             {% if session.get('username') %}
                 <a href="/logout">Logout ({{ session['username'] }})</a>
@@ -218,6 +242,24 @@ def home():
             <tr><td><a href="/xxe">XXE</a></td><td>XML External Entity</td>
                 <td><span class="vuln-badge vuln-high">HIGH</span></td></tr>
             <tr><td><a href="/admin">Admin Panel</a></td><td>Broken Access Control</td>
+                <td><span class="vuln-badge vuln-high">HIGH</span></td></tr>
+            <tr><td><a href="/fetch">URL Fetcher</a></td><td>SSRF — Server-Side Request Forgery</td>
+                <td><span class="vuln-badge vuln-high">CRITICAL</span></td></tr>
+            <tr><td><a href="/jwt">JWT API</a></td><td>JWT Forgery (none algo, weak secret)</td>
+                <td><span class="vuln-badge vuln-high">CRITICAL</span></td></tr>
+            <tr><td><a href="/blind">Blind Check</a></td><td>Blind SQL Injection (Boolean-based)</td>
+                <td><span class="vuln-badge vuln-high">HIGH</span></td></tr>
+            <tr><td><a href="/register">Register</a></td><td>Mass Assignment / Privilege Escalation</td>
+                <td><span class="vuln-badge vuln-high">CRITICAL</span></td></tr>
+            <tr><td><a href="/header">Header</a></td><td>CRLF / HTTP Header Injection</td>
+                <td><span class="vuln-badge vuln-med">MEDIUM</span></td></tr>
+            <tr><td><a href="/crypto">Crypto</a></td><td>Weak Cryptography</td>
+                <td><span class="vuln-badge vuln-high">HIGH</span></td></tr>
+            <tr><td><a href="/coupon">Coupon</a></td><td>Race Condition</td>
+                <td><span class="vuln-badge vuln-high">HIGH</span></td></tr>
+            <tr><td><a href="/reset">Password Reset</a></td><td>Host Header Injection</td>
+                <td><span class="vuln-badge vuln-high">CRITICAL</span></td></tr>
+            <tr><td><a href="/regex">Regex</a></td><td>ReDoS — Regex Denial of Service</td>
                 <td><span class="vuln-badge vuln-high">HIGH</span></td></tr>
         </table>
         <br>
@@ -868,6 +910,605 @@ def user_lookup(user_id):
         content = f"<div class='card'><h2>Error</h2><pre>{e}</pre></div>"
 
     return render_page("User Profile", content)
+
+
+# ──── 17. SSRF — Server-Side Request Forgery ─────────────────────────────────
+@app.route("/fetch", methods=["GET", "POST"])
+def ssrf_fetch():
+    output = ""
+    target_url = ""
+    if request.method == "POST":
+        target_url = request.form.get("url", "")
+        if target_url:
+            try:
+                # VULNERABILITY: SSRF — fetches any URL the server can reach
+                # No allowlist, no blocklist — can hit internal services, cloud metadata, etc.
+                req = urllib.request.Request(target_url, headers={"User-Agent": "VulnWeb/1.0"})
+                resp = urllib.request.urlopen(req, timeout=5)
+                data = resp.read(10000).decode("utf-8", errors="replace")
+                output = f"<div class='alert alert-success'>Response from {target_url}:</div><pre>{data}</pre>"
+            except Exception as e:
+                output = f"<div class='alert alert-danger'>Error fetching URL: {e}</div>"
+
+    content = f"""
+    <div class="card">
+        <h2>URL Fetcher <span class="vuln-badge vuln-high">SSRF</span></h2>
+        <p>Fetch the contents of any URL from the server side:</p>
+        <form method="POST">
+            <label>URL:</label>
+            <input type="text" name="url" value="{target_url}" placeholder="https://example.com">
+            <button type="submit">Fetch</button>
+        </form>
+        {output}
+        <br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hint</summary>
+            <pre>Try fetching internal resources:
+  http://127.0.0.1:5000/api/users  (internal API)
+  http://169.254.169.254/latest/meta-data/  (AWS metadata)
+  http://localhost:5000/admin  (admin panel from server-side)
+  file:///etc/passwd  (local files via file://)
+The server fetches the URL — no client-side restrictions apply.</pre>
+        </details>
+    </div>
+    """
+    return render_page("SSRF", content)
+
+
+# ──── 18. JWT Token Forgery ───────────────────────────────────────────────────
+JWT_SECRET = "secret"  # VULNERABILITY: Extremely weak JWT secret
+
+
+def jwt_base64_encode(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def jwt_base64_decode(data):
+    padding = 4 - len(data) % 4
+    data += "=" * padding
+    return base64.urlsafe_b64decode(data)
+
+
+def create_jwt(payload, secret=JWT_SECRET, algorithm="HS256"):
+    header = {"alg": algorithm, "typ": "JWT"}
+    h = jwt_base64_encode(json.dumps(header).encode())
+    p = jwt_base64_encode(json.dumps(payload).encode())
+    if algorithm == "HS256":
+        sig = hmac.new(secret.encode(), f"{h}.{p}".encode(), hashlib.sha256).digest()
+        s = jwt_base64_encode(sig)
+    else:
+        s = ""
+    return f"{h}.{p}.{s}"
+
+
+def verify_jwt(token):
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None, "Invalid token format"
+
+        header = json.loads(jwt_base64_decode(parts[0]))
+        payload = json.loads(jwt_base64_decode(parts[1]))
+
+        # VULNERABILITY: Accepts "none" algorithm — signature bypass!
+        if header.get("alg") == "none" or header.get("alg") == "None":
+            return payload, None
+
+        # VULNERABILITY: Weak secret "secret" — easily brute-forced
+        if header.get("alg") == "HS256":
+            expected_sig = hmac.new(JWT_SECRET.encode(), f"{parts[0]}.{parts[1]}".encode(), hashlib.sha256).digest()
+            actual_sig = jwt_base64_decode(parts[2])
+            if hmac.compare_digest(expected_sig, actual_sig):
+                return payload, None
+            return None, "Invalid signature"
+
+        return None, f"Unsupported algorithm: {header.get('alg')}"
+    except Exception as e:
+        return None, str(e)
+
+
+@app.route("/jwt", methods=["GET"])
+def jwt_page():
+    content = """
+    <div class="card">
+        <h2>JWT API <span class="vuln-badge vuln-high">JWT Forgery</span></h2>
+        <p>This API uses JSON Web Tokens for authentication.</p>
+        <h3>Endpoints:</h3>
+        <table>
+            <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+            <tr><td>POST</td><td>/api/jwt/login</td><td>Get a JWT token (JSON body: username, password)</td></tr>
+            <tr><td>GET</td><td>/api/jwt/protected</td><td>Access protected data (Header: Authorization: Bearer &lt;token&gt;)</td></tr>
+            <tr><td>GET</td><td>/api/jwt/admin</td><td>Admin-only endpoint (requires role=admin in JWT)</td></tr>
+        </table>
+        <br>
+        <h3>Quick Test:</h3>
+        <pre>
+# Get a token
+curl -X POST /api/jwt/login -H "Content-Type: application/json" \\
+     -d '{"username":"user1","password":"password"}'
+
+# Use the token
+curl /api/jwt/protected -H "Authorization: Bearer &lt;token&gt;"
+        </pre>
+        <br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hints</summary>
+            <pre>1. The JWT secret is extremely weak — try "secret"
+2. The server accepts alg:"none" — forge tokens without a signature!
+3. Change "role":"user" to "role":"admin" in the payload
+4. Tools: jwt.io, jwt_tool, flask-unsign
+
+Forge a token with "none" algorithm:
+  Header: {"alg":"none","typ":"JWT"}
+  Payload: {"username":"admin","role":"admin"}
+  Base64url encode each, join with dots, leave signature empty:
+  eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIn0.</pre>
+        </details>
+    </div>
+    """
+    return render_page("JWT", content)
+
+
+@app.route("/api/jwt/login", methods=["POST"])
+def jwt_login():
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "")
+    password = data.get("password", "")
+
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password)).fetchone()
+    if user:
+        token = create_jwt({"username": user["username"], "role": user["role"], "iat": int(time.time())})
+        return jsonify({"token": token, "message": f"Welcome {user['username']}!"})
+    return jsonify({"error": "Invalid credentials"}), 401
+
+
+@app.route("/api/jwt/protected")
+def jwt_protected():
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return jsonify({"error": "Missing Authorization header. Use: Bearer <token>"}), 401
+
+    token = auth[7:]
+    payload, error = verify_jwt(token)
+    if error:
+        return jsonify({"error": error}), 401
+
+    return jsonify({"message": f"Hello {payload.get('username')}!", "your_role": payload.get("role"), "token_data": payload})
+
+
+@app.route("/api/jwt/admin")
+def jwt_admin():
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return jsonify({"error": "Missing Authorization header"}), 401
+
+    token = auth[7:]
+    payload, error = verify_jwt(token)
+    if error:
+        return jsonify({"error": error}), 401
+
+    # VULNERABILITY: Role is trusted from JWT payload without server-side check
+    if payload.get("role") != "admin":
+        return jsonify({"error": "Admin access required", "your_role": payload.get("role")}), 403
+
+    return jsonify({
+        "message": "Welcome to the admin API!",
+        "flag": "FLAG{jwt_none_algorithm_bypass}",
+        "secret_data": "Database backup password: Sup3rS3cr3t!",
+        "admin_users": ["admin"]
+    })
+
+
+# ──── 19. Blind SQL Injection (Boolean-based) ────────────────────────────────
+@app.route("/blind", methods=["GET", "POST"])
+def blind_sqli():
+    result = ""
+    username = ""
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        db = get_db()
+        # VULNERABILITY: Blind SQL Injection — only reveals exists/not exists
+        query = f"SELECT 1 FROM users WHERE username = '{username}'"
+        try:
+            row = db.execute(query).fetchone()
+            if row:
+                result = "<div class='alert alert-success'>✓ User exists!</div>"
+            else:
+                result = "<div class='alert alert-danger'>✗ User does not exist.</div>"
+        except Exception:
+            result = "<div class='alert alert-danger'>✗ User does not exist.</div>"
+
+    content = f"""
+    <div class="card">
+        <h2>Username Checker <span class="vuln-badge vuln-high">Blind SQLi</span></h2>
+        <p>Check if a username is already taken:</p>
+        <form method="POST">
+            <label>Username:</label>
+            <input type="text" name="username" value="{username}" placeholder="admin">
+            <button type="submit">Check</button>
+        </form>
+        {result}
+        <br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hint</summary>
+            <pre>Boolean-based blind SQLi — only true/false responses.
+Extract data one character at a time:
+
+Check if admin password starts with 'a':
+  admin' AND SUBSTR((SELECT password FROM users WHERE username='admin'),1,1)='a' --
+
+Automate with sqlmap:
+  sqlmap -u "http://target/blind" --data="username=admin" --technique=B</pre>
+        </details>
+    </div>
+    """
+    return render_page("Blind SQLi", content)
+
+
+# ──── 20. Mass Assignment / Privilege Escalation ─────────────────────────────
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    msg = ""
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        email = request.form.get("email", "")
+        # VULNERABILITY: Mass Assignment — all form fields go directly into the DB
+        # Hidden "role" field can be injected to escalate to admin
+        role = request.form.get("role", "user")
+        bio = request.form.get("bio", "")
+
+        if username and password:
+            db = get_db()
+            existing = db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+            if existing:
+                msg = "<div class='alert alert-danger'>Username already taken!</div>"
+            else:
+                db.execute("INSERT INTO users (username, password, role, email, bio) VALUES (?, ?, ?, ?, ?)",
+                           (username, password, role, email, bio))
+                db.commit()
+                msg = f"<div class='alert alert-success'>Account created! Username: {username}, Role: {role}</div>"
+        else:
+            msg = "<div class='alert alert-danger'>Username and password are required.</div>"
+
+    content = f"""
+    <div class="card">
+        <h2>Register <span class="vuln-badge vuln-high">Mass Assignment</span></h2>
+        {msg}
+        <form method="POST">
+            <label>Username:</label>
+            <input type="text" name="username" placeholder="newuser">
+            <label>Password:</label>
+            <input type="password" name="password" placeholder="password">
+            <label>Email:</label>
+            <input type="text" name="email" placeholder="user@example.com">
+            <!-- No "role" field visible in the form -->
+            <button type="submit">Register</button>
+        </form>
+        <br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hint</summary>
+            <pre>The server blindly accepts ALL form parameters.
+Add a hidden "role" field to the request:
+
+With curl:
+  curl -X POST /register -d "username=hacker&password=hacker&role=admin"
+
+With Burp Suite:
+  Intercept the POST and add: role=admin
+
+Or add in browser devtools:
+  document.forms[0].innerHTML += '&lt;input name="role" value="admin"&gt;'</pre>
+        </details>
+    </div>
+    """
+    return render_page("Register", content)
+
+
+# ──── 21. CRLF / HTTP Header Injection ───────────────────────────────────────
+@app.route("/header")
+def header_injection():
+    lang = request.args.get("lang", "en")
+    # VULNERABILITY: CRLF injection — user input placed directly in response header
+    response = make_response(render_page("Header Injection", f"""
+    <div class="card">
+        <h2>Language Preference <span class="vuln-badge vuln-med">CRLF Injection</span></h2>
+        <p>Current language: <strong>{lang}</strong></p>
+        <form method="GET">
+            <label>Set language:</label>
+            <input type="text" name="lang" value="{lang}" placeholder="en">
+            <button type="submit">Set</button>
+        </form>
+        <br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hint</summary>
+            <pre>The "lang" parameter is reflected into a response header.
+Inject CRLF characters to add arbitrary headers:
+
+  /header?lang=en%0d%0aSet-Cookie:%20hacked=true
+  /header?lang=en%0d%0a%0d%0a&lt;script&gt;alert('XSS via CRLF')&lt;/script&gt;
+
+URL-encoded: %0d = CR (\\r), %0a = LF (\\n)</pre>
+        </details>
+    </div>
+    """))
+    # VULNERABILITY: User input injected directly into response header
+    response.headers["X-Custom-Lang"] = lang
+    return response
+
+
+# ──── 22. Weak Cryptography ──────────────────────────────────────────────────
+@app.route("/crypto", methods=["GET", "POST"])
+def weak_crypto():
+    output = ""
+    if request.method == "POST":
+        action = request.form.get("action", "encrypt")
+        text = request.form.get("text", "")
+        method = request.form.get("method", "base64")
+
+        if text:
+            if method == "base64":
+                # VULNERABILITY: Base64 is encoding, not encryption
+                if action == "encrypt":
+                    result = base64.b64encode(text.encode()).decode()
+                else:
+                    try:
+                        result = base64.b64decode(text.encode()).decode()
+                    except Exception:
+                        result = "Invalid base64"
+            elif method == "md5":
+                # VULNERABILITY: MD5 is broken for security purposes
+                result = hashlib.md5(text.encode()).hexdigest()
+            elif method == "rot13":
+                # VULNERABILITY: ROT13 is not encryption
+                result = text.translate(str.maketrans(
+                    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+                    'NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm'))
+            elif method == "xor":
+                # VULNERABILITY: Single-byte XOR with known key
+                key = 0x42
+                result = ''.join(f'{ord(c) ^ key:02x}' for c in text)
+            else:
+                result = text
+
+            output = f"<div class='alert alert-success'><strong>Result:</strong><br><pre>{result}</pre></div>"
+
+    content = f"""
+    <div class="card">
+        <h2>Crypto Vault <span class="vuln-badge vuln-high">Weak Crypto</span></h2>
+        <p>"Securely" encrypt your sensitive data:</p>
+        <form method="POST">
+            <label>Text:</label>
+            <textarea name="text" rows="3" placeholder="Secret message..."></textarea>
+            <label>Method:</label>
+            <select name="method">
+                <option value="base64">AES-256 Military Grade™ (base64)</option>
+                <option value="md5">Secure Hash (MD5)</option>
+                <option value="rot13">ROT13 Cipher</option>
+                <option value="xor">XOR Encryption (key: 0x42)</option>
+            </select>
+            <label>Action:</label>
+            <select name="action">
+                <option value="encrypt">Encrypt</option>
+                <option value="decrypt">Decrypt</option>
+            </select>
+            <button type="submit">Process</button>
+        </form>
+        {output}
+        <br>
+        <p style="color:#666;">Encrypted admin credentials stored: <code>YWRtaW4xMjM=</code></p>
+        <br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hint</summary>
+            <pre>"AES-256 Military Grade" is actually just base64 encoding!
+  echo "YWRtaW4xMjM=" | base64 -d  → admin123
+
+MD5 is cryptographically broken — use rainbow tables:
+  https://crackstation.net/
+
+ROT13 is a Caesar cipher with shift 13 — trivially reversible.
+XOR with a known single-byte key is trivially breakable.</pre>
+        </details>
+    </div>
+    """
+    return render_page("Crypto", content)
+
+
+# ──── 23. Race Condition — Coupon Redemption ─────────────────────────────────
+@app.route("/coupon", methods=["GET", "POST"])
+def coupon():
+    # Store balance and coupon state in session
+    if "balance" not in session:
+        session["balance"] = 0.0
+        session["coupon_used"] = False
+
+    msg = ""
+    if request.method == "POST":
+        code = request.form.get("code", "")
+        if code == "FREEBIE50":
+            # VULNERABILITY: Race Condition — check-then-act without locking
+            # Send many requests simultaneously to redeem multiple times
+            if not session.get("coupon_used"):
+                # Simulate processing delay that widens the race window
+                time.sleep(0.1)
+                session["balance"] = session.get("balance", 0) + 50.0
+                session["coupon_used"] = True
+                msg = "<div class='alert alert-success'>Coupon applied! +$50.00</div>"
+            else:
+                msg = "<div class='alert alert-danger'>Coupon already used!</div>"
+        else:
+            msg = "<div class='alert alert-danger'>Invalid coupon code.</div>"
+
+    # Reset button
+    if request.args.get("reset") == "1":
+        session["balance"] = 0.0
+        session["coupon_used"] = False
+        return redirect(url_for("coupon"))
+
+    content = f"""
+    <div class="card">
+        <h2>Coupon Redemption <span class="vuln-badge vuln-high">Race Condition</span></h2>
+        <p>Current Balance: <strong style="color:#45e960;">${session.get('balance', 0):.2f}</strong></p>
+        <p>Coupon Used: {'Yes' if session.get('coupon_used') else 'No'}</p>
+        {msg}
+        <form method="POST">
+            <label>Coupon Code:</label>
+            <input type="text" name="code" placeholder="Enter coupon code">
+            <button type="submit">Redeem</button>
+        </form>
+        <br>
+        <a href="/coupon?reset=1" class="btn btn-secondary">Reset Balance</a>
+        <br><br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hint</summary>
+            <pre>Valid coupon: FREEBIE50 (one-time use, adds $50)
+
+The check-then-act pattern has a race window.
+Send many requests simultaneously:
+
+  # Using curl in parallel:
+  for i in $(seq 1 20); do
+    curl -X POST /coupon -d "code=FREEBIE50" -b "session=..." &
+  done
+
+  # Using Burp Intruder with "Pitchfork" or Turbo Intruder
+  # to send 50+ requests at exactly the same time.
+
+If timed correctly, balance will exceed $50!</pre>
+        </details>
+    </div>
+    """
+    return render_page("Coupon", content)
+
+
+# ──── 24. Host Header Injection — Password Reset ─────────────────────────────
+@app.route("/reset", methods=["GET", "POST"])
+def host_header_reset():
+    msg = ""
+    if request.method == "POST":
+        email = request.form.get("email", "")
+        if email:
+            # VULNERABILITY: Host Header Injection — uses Host header to build reset link
+            host = request.headers.get("Host", "localhost:5000")
+            reset_token = base64.b64encode(f"{email}:{int(time.time())}".encode()).decode()
+            reset_link = f"http://{host}/reset-confirm?token={reset_token}"
+            # In a real app this would be emailed — here we display it
+            msg = f"""<div class='alert alert-success'>
+                Password reset link generated!<br>
+                <strong>Debug (would be emailed):</strong><br>
+                <a href="{reset_link}" style="color:#45a0e9;word-break:break-all;">{reset_link}</a>
+            </div>"""
+
+    content = f"""
+    <div class="card">
+        <h2>Password Reset <span class="vuln-badge vuln-high">Host Header Injection</span></h2>
+        {msg}
+        <form method="POST">
+            <label>Email Address:</label>
+            <input type="text" name="email" placeholder="admin@vulnweb.local">
+            <button type="submit">Send Reset Link</button>
+        </form>
+        <br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hint</summary>
+            <pre>The reset link is built using the Host header from the request.
+Inject a malicious host to steal the reset token:
+
+  curl -X POST /reset -d "email=admin@vulnweb.local" \\
+       -H "Host: evil-attacker.com"
+
+The generated link will point to evil-attacker.com,
+sending the reset token to your server when the victim clicks it.
+
+Also try X-Forwarded-Host header injection.</pre>
+        </details>
+    </div>
+    """
+    return render_page("Password Reset", content)
+
+
+@app.route("/reset-confirm")
+def reset_confirm():
+    token = request.args.get("token", "")
+    msg = ""
+    if token:
+        try:
+            decoded = base64.b64decode(token).decode()
+            email, ts = decoded.rsplit(":", 1)
+            msg = f"<div class='alert alert-success'>Reset token valid for: {email}<br>You can now set a new password.</div>"
+        except Exception:
+            msg = "<div class='alert alert-danger'>Invalid or expired token.</div>"
+
+    content = f"""
+    <div class="card">
+        <h2>Confirm Password Reset</h2>
+        {msg}
+        <form method="POST" action="/change-password">
+            <label>New Password:</label>
+            <input type="password" name="new_password" placeholder="New password">
+            <button type="submit">Change Password</button>
+        </form>
+    </div>
+    """
+    return render_page("Reset Confirm", content)
+
+
+# ──── 25. ReDoS — Regular Expression Denial of Service ───────────────────────
+@app.route("/regex", methods=["GET", "POST"])
+def regex_dos():
+    output = ""
+    pattern = ""
+    text = ""
+    if request.method == "POST":
+        pattern = request.form.get("pattern", "")
+        text = request.form.get("text", "")
+        if pattern and text:
+            try:
+                start = time.time()
+                # VULNERABILITY: User-controlled regex — can cause catastrophic backtracking
+                match = re.search(pattern, text)
+                elapsed = time.time() - start
+                if match:
+                    output = f"<div class='alert alert-success'>Match found: '{match.group()}' (took {elapsed:.4f}s)</div>"
+                else:
+                    output = f"<div class='alert alert-danger'>No match (took {elapsed:.4f}s)</div>"
+            except re.error as e:
+                output = f"<div class='alert alert-danger'>Regex error: {e}</div>"
+            except Exception as e:
+                output = f"<div class='alert alert-danger'>Error: {e}</div>"
+
+    content = f"""
+    <div class="card">
+        <h2>Regex Tester <span class="vuln-badge vuln-high">ReDoS</span></h2>
+        <p>Test your regular expressions against sample text:</p>
+        <form method="POST">
+            <label>Pattern:</label>
+            <input type="text" name="pattern" value="{pattern}" placeholder="^(a+)+$">
+            <label>Test String:</label>
+            <input type="text" name="text" value="{text}" placeholder="aaaaaaaaaaaaaaaaaaaaaaaa!">
+            <button type="submit">Test</button>
+        </form>
+        {output}
+        <br>
+        <details>
+            <summary style="color:#e94560;cursor:pointer;">💡 Hint</summary>
+            <pre>Certain regex patterns cause exponential backtracking (ReDoS):
+
+Evil pattern: ^(a+)+$
+Evil input:   aaaaaaaaaaaaaaaaaaaaaaaa!
+
+Other dangerous patterns:
+  (a|a)*b          with "aaaaaaaaaaaaaaaa!"
+  ([a-z]+)+$       with "aaaaaaaaaaaaaaaa!"
+  (a+){lbrace}10{rbrace}  with "aaaaaaaaaaaaaaaa!"
+
+The server hangs while the regex engine backtracks exponentially.
+This is a Denial of Service attack using CPU exhaustion.</pre>
+        </details>
+    </div>
+    """
+    return render_page("Regex", content)
 
 
 # ──── Robots.txt (info disclosure) ────────────────────────────────────────────
