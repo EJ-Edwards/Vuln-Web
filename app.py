@@ -43,8 +43,16 @@ import base64
 import hashlib
 import hmac
 import time
+import random
+import logging
 import urllib.request
 from xml.etree import ElementTree as ET
+
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
 
 from flask import (
     Flask,
@@ -55,6 +63,7 @@ from flask import (
     session,
     make_response,
     send_file,
+    send_from_directory,
     g,
     flash,
     jsonify,
@@ -63,9 +72,13 @@ from flask import (
 
 from setup_db import init_db, DB_PATH
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="src", static_url_path="/src")
 # Vulnerability: Weak/hardcoded secret key
 app.secret_key = "super_secret_key_123"
+
+# VULNERABILITY: Verbose logging setup — logs sensitive data
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger("vulnweb")
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -1530,6 +1543,415 @@ def api_users():
     db = get_db()
     users = db.execute("SELECT id, username, email, role FROM users").fetchall()
     return {"users": [dict(u) for u in users]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API v2 — VULNERABLE ENDPOINTS (Node.js + Python common vulnerabilities)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ──── Serve static src/ files ─────────────────────────────────────────────────
+SRC_FOLDER = os.path.join(os.path.dirname(__file__), "src")
+
+
+# ──── 26. Unsafe eval() — Code Injection ─────────────────────────────────────
+# Node.js: eval(userInput)  |  Python: eval(userInput)
+@app.route("/api/v2/eval", methods=["POST"])
+def api_eval():
+    """
+    VULNERABILITY: Unsafe eval() — arbitrary code execution.
+    In Node.js this would be: eval(req.body.expression)
+    In Python: eval() executes arbitrary Python expressions.
+    """
+    data = request.get_json(silent=True) or {}
+    expression = data.get("expression", "")
+
+    if not expression:
+        return jsonify({"error": "Missing 'expression' field"}), 400
+
+    try:
+        # VULNERABILITY: Direct eval of user-supplied input
+        result = eval(expression)
+        return jsonify({"result": str(result), "expression": expression})
+    except Exception as e:
+        # VULNERABILITY: Verbose error messages
+        return jsonify({"error": str(e), "type": type(e).__name__, "expression": expression}), 500
+
+
+# ──── 27. Deep Merge — Prototype Pollution equivalent ─────────────────────────
+# Node.js: lodash.merge({}, userInput) — Prototype Pollution
+# Python: recursive dict merge without sanitization
+def unsafe_deep_merge(base, override):
+    """VULNERABILITY: Unsafe deep merge allows overwriting internal properties."""
+    for key, value in override.items():
+        if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+            unsafe_deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+@app.route("/api/v2/merge", methods=["POST"])
+def api_merge():
+    """
+    VULNERABILITY: Deep merge / Prototype Pollution equivalent.
+    Node.js: lodash.merge allows __proto__ pollution.
+    Python: recursive merge allows overwriting class attributes.
+    """
+    data = request.get_json(silent=True) or {}
+
+    # Base user profile
+    user_profile = {
+        "username": "guest",
+        "role": "user",
+        "is_superuser": False,
+        "permissions": {"read": True, "write": False, "admin": False},
+        "settings": {"theme": "dark", "notifications": True}
+    }
+
+    try:
+        # VULNERABILITY: Merges arbitrary user data into the profile
+        # An attacker can set role=admin, is_superuser=True, etc.
+        result = unsafe_deep_merge(user_profile, data)
+        return jsonify({
+            "message": "Profile updated via deep merge",
+            "profile": result,
+            "is_admin": result.get("role") == "admin" or result.get("is_superuser") is True
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ──── 28. Unsafe YAML Deserialization ─────────────────────────────────────────
+# Node.js: js-yaml.load(untrusted) (before v4 safe default)
+# Python: yaml.load(untrusted, Loader=yaml.FullLoader)
+@app.route("/api/v2/yaml", methods=["POST"])
+def api_yaml():
+    """
+    VULNERABILITY: Unsafe YAML deserialization.
+    Node.js: js-yaml with unsafe schema allows code execution.
+    Python: yaml.load() without SafeLoader allows arbitrary object creation.
+    """
+    data = request.get_json(silent=True) or {}
+    yaml_content = data.get("yaml_content", "")
+
+    if not yaml_content:
+        return jsonify({"error": "Missing 'yaml_content' field"}), 400
+
+    if not HAS_YAML:
+        # Fallback: simulate YAML parsing with basic key:value
+        try:
+            result = {}
+            for line in yaml_content.strip().split("\n"):
+                if ":" in line:
+                    key, val = line.split(":", 1)
+                    result[key.strip()] = val.strip()
+            return jsonify({"parsed": result, "note": "PyYAML not installed — used basic parser"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    try:
+        # VULNERABILITY: yaml.load with FullLoader allows dangerous deserialization
+        # yaml.FullLoader can instantiate Python objects
+        parsed = yaml.load(yaml_content, Loader=yaml.FullLoader)
+        return jsonify({"parsed": str(parsed), "type": type(parsed).__name__})
+    except Exception as e:
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
+
+
+# ──── 29. NoSQL Injection (Simulated) ─────────────────────────────────────────
+# Node.js: MongoDB query with $gt/$ne operators
+# Python: PyMongo query injection when passing raw user JSON
+NOSQL_USERS = [
+    {"username": "admin", "password": "admin123", "role": "admin", "email": "admin@vulnweb.local"},
+    {"username": "user1", "password": "password", "role": "user", "email": "user1@vulnweb.local"},
+    {"username": "john", "password": "letmein", "role": "user", "email": "john@vulnweb.local"},
+]
+
+
+def nosql_match(value, query):
+    """Simulate MongoDB-style query operators."""
+    if isinstance(query, dict):
+        for operator, operand in query.items():
+            if operator == "$ne":
+                if value == operand:
+                    return False
+            elif operator == "$gt":
+                if not (value > operand):
+                    return False
+            elif operator == "$gte":
+                if not (value >= operand):
+                    return False
+            elif operator == "$lt":
+                if not (value < operand):
+                    return False
+            elif operator == "$regex":
+                if not re.search(operand, value):
+                    return False
+            elif operator == "$in":
+                if value not in operand:
+                    return False
+        return True
+    else:
+        return value == query
+
+
+@app.route("/api/v2/nosql", methods=["POST"])
+def api_nosql():
+    """
+    VULNERABILITY: NoSQL Injection — MongoDB-style operator injection.
+    Node.js: db.collection.find({username: req.body.username, password: req.body.password})
+    Python: pymongo collection.find_one(request.json)
+    Attackers can bypass auth with: {"password": {"$ne": ""}}
+    """
+    data = request.get_json(silent=True) or {}
+    username_query = data.get("username", "")
+    password_query = data.get("password", "")
+
+    if not username_query:
+        return jsonify({"error": "Missing 'username' field"}), 400
+
+    # VULNERABILITY: User-supplied JSON operators are evaluated directly
+    for user in NOSQL_USERS:
+        if nosql_match(user["username"], username_query) and nosql_match(user["password"], password_query):
+            return jsonify({
+                "authenticated": True,
+                "user": {"username": user["username"], "role": user["role"], "email": user["email"]},
+                "message": f"Welcome {user['username']}!"
+            })
+
+    return jsonify({"authenticated": False, "message": "Invalid credentials"}), 401
+
+
+# ──── 30. Template Injection via API ──────────────────────────────────────────
+# Node.js: res.render with user input in EJS/Pug templates
+# Python: render_template_string with user input (Jinja2)
+@app.route("/api/v2/template", methods=["POST"])
+def api_template():
+    """
+    VULNERABILITY: Server-Side Template Injection via API.
+    Node.js: ejs.render('<%= user %>', {user: req.body.name})
+    Python: render_template_string with user-controlled input.
+    """
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "World")
+    greeting = data.get("greeting", "Hello")
+
+    try:
+        # VULNERABILITY: User input directly interpolated into Jinja2 template
+        template = f"<p>{greeting}, {name}!</p>"
+        rendered = render_template_string(template)
+        return jsonify({"rendered": rendered, "template_used": template})
+    except Exception as e:
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
+
+
+# ──── 31. Log Injection / Log Forging ─────────────────────────────────────────
+# Node.js: console.log('User logged in: ' + req.body.username)
+# Python: logging.info(f"User logged in: {username}")
+@app.route("/api/v2/log", methods=["POST"])
+def api_log():
+    """
+    VULNERABILITY: Log Injection — user input written directly to logs.
+    Attackers can inject newlines to forge log entries.
+    Node.js: console.log(`User action: ${req.body.action}`)
+    Python: logger.info(f"User action: {action}")
+    """
+    data = request.get_json(silent=True) or {}
+    action = data.get("action", "unknown")
+    user = data.get("user", "anonymous")
+
+    # VULNERABILITY: User input logged without sanitization
+    # Newline characters in input create fake log entries
+    logger.info(f"API Action: {action} | User: {user} | IP: {request.remote_addr}")
+
+    return jsonify({
+        "logged": True,
+        "log_entry": f"API Action: {action} | User: {user} | IP: {request.remote_addr}",
+        "message": "Action logged successfully. Check server console for log output."
+    })
+
+
+# ──── 32. Insecure Randomness ────────────────────────────────────────────────
+# Node.js: Math.random() for tokens  |  Python: random.random() for tokens
+@app.route("/api/v2/random-token")
+def api_random_token():
+    """
+    VULNERABILITY: Insecure randomness for security-sensitive tokens.
+    Node.js: Math.random().toString(36) — uses xorshift128+, predictable.
+    Python: random.random() — uses Mersenne Twister, predictable after 624 outputs.
+    Should use: secrets.token_hex() (Python) or crypto.randomBytes() (Node.js).
+    """
+    # VULNERABILITY: Using random module (not cryptographically secure)
+    token = ''.join(random.choice('abcdef0123456789') for _ in range(32))
+    session_id = ''.join(random.choice('ABCDEFGHIJKLMNOP0123456789') for _ in range(16))
+    reset_code = str(random.randint(100000, 999999))
+
+    # VULNERABILITY: Also exposing the seed state info
+    return jsonify({
+        "api_token": token,
+        "session_id": session_id,
+        "password_reset_code": reset_code,
+        "generator": "Python random (Mersenne Twister — NOT cryptographically secure)",
+        "warning": "These tokens are predictable! After observing 624 32-bit outputs, "
+                   "the entire Mersenne Twister state can be recovered and future tokens predicted.",
+        "node_equivalent": "Math.random().toString(36).substring(2) — also predictable"
+    })
+
+
+# ──── 33. Dynamic Import / Module Injection ───────────────────────────────────
+# Node.js: require(userInput)  |  Python: __import__(userInput)
+@app.route("/api/v2/import", methods=["POST"])
+def api_import():
+    """
+    VULNERABILITY: Dynamic module import with user-controlled input.
+    Node.js: const mod = require(req.body.module)
+    Python: mod = __import__(module_name)
+    Allows importing dangerous modules like os, subprocess, etc.
+    """
+    data = request.get_json(silent=True) or {}
+    module_name = data.get("module", "")
+    func_name = data.get("function", "")
+    args = data.get("args", [])
+
+    if not module_name:
+        return jsonify({"error": "Missing 'module' field"}), 400
+
+    try:
+        # VULNERABILITY: Dynamic import of user-specified module
+        mod = __import__(module_name)
+        result = {"module": module_name, "available_attrs": dir(mod)[:20]}
+
+        if func_name:
+            func = getattr(mod, func_name)
+            # VULNERABILITY: Calling arbitrary functions with user-supplied args
+            call_result = func(*args)
+            result["function"] = func_name
+            result["result"] = str(call_result)
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
+
+
+# ──── 34. DoS via Unbounded Input Processing ─────────────────────────────────
+# Node.js: No body-parser limit, no timeout  |  Python: No payload size limit
+@app.route("/api/v2/parse", methods=["POST"])
+def api_parse():
+    """
+    VULNERABILITY: Denial of Service via unbounded input processing.
+    Node.js: app.use(express.json()) without limit option.
+    Python: No request size limits, no processing timeouts.
+    """
+    data = request.get_json(silent=True) or {}
+    text = data.get("data", "")
+    repeat = data.get("repeat", 1)
+
+    # VULNERABILITY: No upper bound on repeat count — can exhaust memory/CPU
+    try:
+        repeat = int(repeat)
+        # VULNERABILITY: Allocates potentially massive string
+        result = text * repeat
+
+        # VULNERABILITY: Computes hash of potentially massive string
+        hashed = hashlib.sha256(result.encode()).hexdigest()
+
+        return jsonify({
+            "original_length": len(text),
+            "repeat_count": repeat,
+            "result_length": len(result),
+            "sha256": hashed,
+            "preview": result[:500]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ──── 35. Hardcoded Secrets / Config Exposure ─────────────────────────────────
+# Node.js: process.env exposure  |  Python: app.config / os.environ exposure
+@app.route("/api/v2/config")
+def api_config():
+    """
+    VULNERABILITY: Exposes internal configuration with secrets.
+    Node.js: Accidentally exposing process.env in API response.
+    Python: Exposing app.config or os.environ.
+    """
+    # VULNERABILITY: Returns sensitive configuration data
+    return jsonify({
+        "app": {
+            "secret_key": app.secret_key,
+            "debug": app.debug,
+            "env": app.env if hasattr(app, 'env') else "production",
+        },
+        "database": {
+            "path": DB_PATH,
+            "type": "SQLite3",
+            "connection_string": f"sqlite:///{DB_PATH}"
+        },
+        "jwt": {
+            "secret": JWT_SECRET,
+            "algorithm": "HS256",
+            "note": "Also accepts 'none' algorithm"
+        },
+        "credentials": {
+            "admin_user": "admin",
+            "admin_pass": "admin123",
+            "api_key": "sk-vuln-api-key-2024-do-not-share",
+            "backup_password": "Sup3rS3cr3t!"
+        },
+        "server": {
+            "hostname": request.host,
+            "python_version": os.sys.version,
+            "os": os.name,
+            "cwd": os.getcwd(),
+            "pid": os.getpid()
+        },
+        "env_vars": {k: v for k, v in list(os.environ.items())[:15]},
+        "note": "This endpoint simulates Node.js process.env leak and Python app.config exposure"
+    })
+
+
+# ──── 36. Chat API — No Auth, No Sanitization ────────────────────────────────
+chat_messages = [
+    {"username": "System", "message": "Welcome to VulnChat!", "timestamp": "2024-01-01 00:00:00"},
+]
+
+
+@app.route("/api/v2/chat", methods=["GET", "POST"])
+def api_chat():
+    """
+    VULNERABILITY: No authentication, no input validation, no rate limiting.
+    Messages are stored and returned without sanitization — Stored XSS via API.
+    """
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        username = data.get("username", "anonymous")
+        message = data.get("message", "")
+
+        if not message:
+            return jsonify({"error": "Missing 'message' field"}), 400
+
+        # VULNERABILITY: No authentication required
+        # VULNERABILITY: No input sanitization — stored XSS
+        # VULNERABILITY: No rate limiting
+        entry = {
+            "username": username,
+            "message": message,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        chat_messages.append(entry)
+
+        # VULNERABILITY: Log injection via chat
+        logger.info(f"Chat message from {username}: {message}")
+
+        return jsonify({"success": True, "entry": entry})
+
+    # GET — return all messages (no pagination, no auth)
+    return jsonify({"messages": chat_messages})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# END API v2
+# ═══════════════════════════════════════════════════════════════════════════════
 
 
 # ──── Error Handlers (verbose errors) ────────────────────────────────────────

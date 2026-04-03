@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VulnWeb — Intentionally Vulnerable App</title>
+    <link rel="stylesheet" href="/src/css/style.css">
+</head>
+<body>
+    <div class="warning-banner">
+        ⚠️ INTENTIONALLY VULNERABLE APPLICATION — FOR EDUCATIONAL USE ONLY — DO NOT DEPLOY ON PUBLIC NETWORKS ⚠️
+    </div>
+
+    <nav class="navbar">
+        <a href="/" class="brand">Vuln<span>Web</span></a>
+        <div class="nav-links">
+            <a href="/">Home</a>
+            <a href="/src/api-tester.html">API Tester</a>
+            <a href="/src/dom-xss.html">DOM XSS</a>
+            <a href="/src/login-client.html">Client Login</a>
+            <a href="/src/chat.html">Chat</a>
+            <a href="/login">Server Login</a>
+            <a href="/admin">Admin</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card hero-card">
+            <h1>VulnWeb <span class="version">v2.0</span></h1>
+            <p class="subtitle">A deliberately vulnerable web application for practicing penetration testing and security research.</p>
+            <div class="alert alert-danger">
+                <strong>⚠️ WARNING:</strong> This app is intentionally insecure. Never deploy on a public network.
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🔥 API Vulnerabilities <span class="vuln-badge vuln-high">Node.js + Python</span></h2>
+            <p>These API endpoints simulate vulnerabilities commonly found in both Node.js and Python backends.</p>
+            <table>
+                <thead>
+                    <tr><th>Endpoint</th><th>Vulnerability</th><th>Severity</th><th>Origin</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="/src/api-tester.html#eval">/api/v2/eval</a></td>
+                        <td>Unsafe eval() / Code Injection</td>
+                        <td><span class="vuln-badge vuln-high">CRITICAL</span></td>
+                        <td>Node.js + Python</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#merge">/api/v2/merge</a></td>
+                        <td>Prototype Pollution / Deep Merge</td>
+                        <td><span class="vuln-badge vuln-high">HIGH</span></td>
+                        <td>Node.js (Python equiv)</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#yaml">/api/v2/yaml</a></td>
+                        <td>Unsafe YAML Deserialization</td>
+                        <td><span class="vuln-badge vuln-high">CRITICAL</span></td>
+                        <td>Node.js (js-yaml) + Python (PyYAML)</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#nosql">/api/v2/nosql</a></td>
+                        <td>NoSQL Injection (Simulated)</td>
+                        <td><span class="vuln-badge vuln-high">HIGH</span></td>
+                        <td>Node.js (MongoDB) + Python (PyMongo)</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#template">/api/v2/template</a></td>
+                        <td>Template Injection via API</td>
+                        <td><span class="vuln-badge vuln-high">CRITICAL</span></td>
+                        <td>Node.js (EJS/Pug) + Python (Jinja2)</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#log">/api/v2/log</a></td>
+                        <td>Log Injection / Log Forging</td>
+                        <td><span class="vuln-badge vuln-med">MEDIUM</span></td>
+                        <td>Node.js + Python</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#random">/api/v2/random-token</a></td>
+                        <td>Insecure Randomness</td>
+                        <td><span class="vuln-badge vuln-med">MEDIUM</span></td>
+                        <td>Node.js (Math.random) + Python (random)</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#import">/api/v2/import</a></td>
+                        <td>Dynamic Import / Module Injection</td>
+                        <td><span class="vuln-badge vuln-high">CRITICAL</span></td>
+                        <td>Node.js (require) + Python (__import__)</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#dos">/api/v2/parse</a></td>
+                        <td>DoS via Large Payload / ReDoS</td>
+                        <td><span class="vuln-badge vuln-high">HIGH</span></td>
+                        <td>Node.js + Python</td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html#secret">/api/v2/config</a></td>
+                        <td>Hardcoded Secrets / Info Disclosure</td>
+                        <td><span class="vuln-badge vuln-med">MEDIUM</span></td>
+                        <td>Node.js + Python</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>🌐 Client-Side Vulnerabilities</h2>
+            <table>
+                <thead>
+                    <tr><th>Page</th><th>Vulnerability</th><th>Severity</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="/src/dom-xss.html">DOM XSS Lab</a></td>
+                        <td>DOM-based XSS (innerHTML, document.write, eval)</td>
+                        <td><span class="vuln-badge vuln-high">HIGH</span></td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/login-client.html">Client Login</a></td>
+                        <td>Client-side auth bypass, credential in source</td>
+                        <td><span class="vuln-badge vuln-high">HIGH</span></td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/chat.html">WebSocket Chat</a></td>
+                        <td>XSS via WebSocket, no message sanitization</td>
+                        <td><span class="vuln-badge vuln-high">HIGH</span></td>
+                    </tr>
+                    <tr>
+                        <td><a href="/src/api-tester.html">API Tester</a></td>
+                        <td>Test all vulnerable API endpoints interactively</td>
+                        <td><span class="vuln-badge vuln-low">TOOL</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>🐍 Python Backend Vulnerabilities</h2>
+            <p>Original server-side vulnerabilities (Flask backend):</p>
+            <div class="grid-links">
+                <a href="/login" class="grid-link">SQL Injection — Login</a>
+                <a href="/search" class="grid-link">SQLi + Reflected XSS — Search</a>
+                <a href="/guestbook" class="grid-link">Stored XSS — Guestbook</a>
+                <a href="/ping" class="grid-link">Command Injection — Ping</a>
+                <a href="/upload" class="grid-link">Unrestricted Upload</a>
+                <a href="/notes" class="grid-link">IDOR — Notes</a>
+                <a href="/products" class="grid-link">IDOR — Products</a>
+                <a href="/profile" class="grid-link">CSRF + Stored XSS</a>
+                <a href="/download?file=readme.txt" class="grid-link">Path Traversal</a>
+                <a href="/redirect?url=/" class="grid-link">Open Redirect</a>
+                <a href="/ssti" class="grid-link">SSTI — Template Injection</a>
+                <a href="/deserialize" class="grid-link">Insecure Deserialization</a>
+                <a href="/xxe" class="grid-link">XXE — XML Entity</a>
+                <a href="/admin" class="grid-link">Broken Access Control</a>
+                <a href="/fetch" class="grid-link">SSRF — URL Fetcher</a>
+                <a href="/jwt" class="grid-link">JWT Forgery</a>
+                <a href="/blind" class="grid-link">Blind SQL Injection</a>
+                <a href="/register" class="grid-link">Mass Assignment</a>
+                <a href="/header" class="grid-link">CRLF Injection</a>
+                <a href="/crypto" class="grid-link">Weak Cryptography</a>
+                <a href="/coupon" class="grid-link">Race Condition</a>
+                <a href="/reset" class="grid-link">Host Header Injection</a>
+                <a href="/regex" class="grid-link">ReDoS</a>
+            </div>
+        </div>
+    </div>
+
+    <footer>VulnWeb v2.0 — Intentionally Vulnerable — Practice Responsibly</footer>
+
+    <script src="/src/js/app.js"></script>
+</body>
+</html>
