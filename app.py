@@ -27,7 +27,7 @@ app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 app.secret_key = "super_secret_key_123"  # VULN: Hardcoded weak secret key
 
 CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "http://localhost:5173",
+    "Access-Control-Allow-Origin": "*",  # VULN: Wildcard CORS — allows any origin
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Credentials": "true",
@@ -863,6 +863,528 @@ def debug_info():
         "database": DB_PATH,
         "cwd": os.getcwd(),
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SERVER-RENDERED VULNERABLE HTML PAGES — These are what scanners crawl
+# ══════════════════════════════════════════════════════════════════════════════
+
+VULN_PAGE_STYLE = """
+<style>
+  body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; margin: 0; background: #0a0a0a; color: #e0e0e0; }
+  .nav { background: #111; padding: 12px 24px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #333; }
+  .nav a { color: #4fc3f7; text-decoration: none; font-size: 14px; }
+  .nav a:hover { text-decoration: underline; }
+  .nav .brand { color: #ffd54f; font-weight: bold; font-size: 16px; margin-right: 20px; }
+  .container { max-width: 900px; margin: 30px auto; padding: 0 20px; }
+  h1 { color: #ffd54f; } h2 { color: #4fc3f7; }
+  form { background: #1a1a1a; padding: 20px; border-radius: 8px; margin: 16px 0; border: 1px solid #333; }
+  input, textarea, select { width: 100%; padding: 10px; margin: 8px 0 16px; background: #222; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; box-sizing: border-box; }
+  button, .btn { background: #4fc3f7; color: #000; padding: 10px 24px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; }
+  button:hover, .btn:hover { background: #039be5; }
+  .result { background: #1a2a1a; padding: 16px; border-radius: 8px; margin: 16px 0; border: 1px solid #2e7d32; white-space: pre-wrap; word-break: break-all; }
+  .error { background: #2a1a1a; border-color: #c62828; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { padding: 10px; text-align: left; border-bottom: 1px solid #333; }
+  th { background: #1a1a1a; color: #ffd54f; }
+  .warning { background: #2a2000; padding: 12px; border-radius: 4px; border: 1px solid #f9a825; margin: 16px 0; color: #ffd54f; }
+  .guestbook-entry { background: #1a1a1a; padding: 12px; border-radius: 8px; margin: 8px 0; border: 1px solid #333; }
+  pre { background: #111; padding: 12px; border-radius: 4px; overflow-x: auto; }
+</style>
+"""
+
+VULN_NAV = """
+<div class="nav">
+  <a href="/" class="brand">🏨 Grand Hotel</a>
+  <a href="/vuln">Vuln Hub</a>
+  <a href="/vuln/login">SQL Login</a>
+  <a href="/vuln/search">Search/XSS</a>
+  <a href="/vuln/guestbook">Guestbook</a>
+  <a href="/vuln/ping">Ping</a>
+  <a href="/vuln/upload">Upload</a>
+  <a href="/vuln/download">Download</a>
+  <a href="/vuln/users">Users</a>
+  <a href="/vuln/profile">Profile</a>
+  <a href="/vuln/ssti">SSTI</a>
+  <a href="/vuln/fetch">SSRF</a>
+  <a href="/vuln/crypto">Crypto</a>
+  <a href="/vuln/redirect?url=/">Redirect</a>
+</div>
+"""
+
+
+def vuln_page(title, body):
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>{title} - Grand Hotel</title>{VULN_PAGE_STYLE}</head>
+<body>{VULN_NAV}<div class="container">{body}</div></body></html>"""
+
+
+# --- Vuln Hub Index ---
+@app.route("/vuln")
+def vuln_index():
+    body = """
+    <h1>🔓 Vulnerability Testing Hub</h1>
+    <p class="warning">⚠️ This section is intentionally vulnerable for educational &amp; penetration testing purposes.</p>
+    <h2>Available Vulnerable Pages</h2>
+    <table>
+      <tr><th>#</th><th>Vulnerability</th><th>Page</th><th>Severity</th></tr>
+      <tr><td>1</td><td>SQL Injection (Auth Bypass)</td><td><a href="/vuln/login">Login</a></td><td>🔴 HIGH</td></tr>
+      <tr><td>2</td><td>SQL Injection (UNION) + Reflected XSS</td><td><a href="/vuln/search">Search</a></td><td>🔴 HIGH</td></tr>
+      <tr><td>3</td><td>Stored XSS</td><td><a href="/vuln/guestbook">Guestbook</a></td><td>🔴 HIGH</td></tr>
+      <tr><td>4</td><td>Command Injection</td><td><a href="/vuln/ping">Ping</a></td><td>🔴 HIGH</td></tr>
+      <tr><td>5</td><td>Unrestricted File Upload</td><td><a href="/vuln/upload">Upload</a></td><td>🔴 HIGH</td></tr>
+      <tr><td>6</td><td>Path Traversal</td><td><a href="/vuln/download">Download</a></td><td>🔴 HIGH</td></tr>
+      <tr><td>7</td><td>Information Disclosure</td><td><a href="/vuln/users">Users</a></td><td>🟡 MEDIUM</td></tr>
+      <tr><td>8</td><td>Stored XSS (Profile Bio)</td><td><a href="/vuln/profile">Profile</a></td><td>🔴 HIGH</td></tr>
+      <tr><td>9</td><td>SSTI (Template Injection)</td><td><a href="/vuln/ssti">SSTI</a></td><td>🔴 HIGH</td></tr>
+      <tr><td>10</td><td>SSRF (Server-Side Request Forgery)</td><td><a href="/vuln/fetch">URL Fetcher</a></td><td>🔴 CRITICAL</td></tr>
+      <tr><td>11</td><td>Weak Cryptography</td><td><a href="/vuln/crypto">Crypto Vault</a></td><td>🟡 MEDIUM</td></tr>
+      <tr><td>12</td><td>Open Redirect</td><td><a href="/vuln/redirect?url=https://evil.com">Redirect</a></td><td>🟡 LOW</td></tr>
+      <tr><td>13</td><td>CSRF (No Token)</td><td><a href="/vuln/profile">Profile Update</a></td><td>🟡 MEDIUM</td></tr>
+      <tr><td>14</td><td>IDOR</td><td><a href="/vuln/notes">Notes</a></td><td>🟡 MEDIUM</td></tr>
+      <tr><td>15</td><td>Blind SQL Injection</td><td><a href="/vuln/blind">Username Check</a></td><td>🔴 HIGH</td></tr>
+    </table>
+    """
+    return vuln_page("Vulnerability Hub", body)
+
+
+# --- 1. SQL Injection Login Page ---
+@app.route("/vuln/login", methods=["GET", "POST"])
+def vuln_login():
+    result = ""
+    if request.method == "POST":
+        email = request.form.get("email", "")
+        password = request.form.get("password", "")
+        db = get_db()
+        # VULN: SQL Injection via string concatenation
+        query = f"SELECT * FROM users WHERE email = '{email}' AND password_hash = '{password}'"
+        try:
+            user = db.execute(query).fetchone()
+            if user:
+                result = f'<div class="result">✅ Login successful!<br>Welcome, {user["name"]}!<br>Role: {user["role"]}<br>Email: {user["email"]}</div>'
+            else:
+                result = '<div class="result error">❌ Invalid credentials</div>'
+        except Exception as e:
+            result = f'<div class="result error">❌ SQL Error: {e}<br><br>Query: {query}</div>'
+
+    body = f"""
+    <h1>🔐 Login</h1>
+    <p class="warning">💡 Hint: Try <code>' OR '1'='1' --</code> in the email field</p>
+    <form method="POST" action="/vuln/login">
+      <label>Email</label>
+      <input type="text" name="email" placeholder="admin@grandhotel.com" autocomplete="off">
+      <label>Password</label>
+      <input type="text" name="password" placeholder="password" autocomplete="off">
+      <button type="submit">Login</button>
+    </form>
+    {result}
+    """
+    return vuln_page("SQL Injection Login", body)
+
+
+# --- 2. Search with SQL Injection + Reflected XSS ---
+@app.route("/vuln/search")
+def vuln_search_page():
+    q = request.args.get("q", "")
+    result = ""
+    if q:
+        db = get_db()
+        # VULN: SQL Injection + Reflected XSS — query echoed in HTML unescaped
+        query = f"SELECT id, name, type, price_per_night FROM rooms WHERE name LIKE '%{q}%' OR description LIKE '%{q}%'"
+        try:
+            rows = db.execute(query).fetchall()
+            result = f'<h2>Results for: {q}</h2>'  # VULN: Reflected XSS
+            if rows:
+                result += "<table><tr><th>ID</th><th>Name</th><th>Type</th><th>Price</th></tr>"
+                for r in rows:
+                    result += f"<tr><td>{r['id']}</td><td>{r['name']}</td><td>{r['type']}</td><td>${r['price_per_night']}</td></tr>"
+                result += "</table>"
+            else:
+                result += '<p>No rooms found.</p>'
+        except Exception as e:
+            result = f'<div class="result error">SQL Error: {e}<br>Query: {query}</div>'
+
+    body = f"""
+    <h1>🔍 Room Search</h1>
+    <p class="warning">💡 Try XSS: <code>&lt;script&gt;alert('XSS')&lt;/script&gt;</code> or SQLi: <code>' UNION SELECT 1,email,password_hash,phone FROM users--</code></p>
+    <form method="GET" action="/vuln/search">
+      <label>Search Rooms</label>
+      <input type="text" name="q" value="{q}" placeholder="Search rooms..." autocomplete="off">
+      <button type="submit">Search</button>
+    </form>
+    {result}
+    """
+    return vuln_page("Search (SQLi + XSS)", body)
+
+
+# --- 3. Guestbook with Stored XSS ---
+@app.route("/vuln/guestbook", methods=["GET", "POST"])
+def vuln_guestbook():
+    db = get_db()
+    if request.method == "POST":
+        name = request.form.get("name", "")
+        message = request.form.get("message", "")
+        if name and message:
+            # VULN: Stored XSS — no sanitization
+            db.execute("INSERT INTO guestbook (name, message) VALUES (?, ?)", (name, message))
+            db.commit()
+
+    entries = db.execute("SELECT * FROM guestbook ORDER BY created_at DESC").fetchall()
+    entries_html = ""
+    for e in entries:
+        # VULN: Stored XSS — raw HTML output
+        entries_html += f'<div class="guestbook-entry"><strong>{e["name"]}</strong><br>{e["message"]}<br><small>{e["created_at"]}</small></div>'
+
+    body = f"""
+    <h1>📝 Guestbook</h1>
+    <p class="warning">💡 Try: <code>&lt;script&gt;alert('Stored XSS')&lt;/script&gt;</code> or <code>&lt;img src=x onerror=alert('XSS')&gt;</code></p>
+    <form method="POST" action="/vuln/guestbook">
+      <label>Your Name</label>
+      <input type="text" name="name" placeholder="Enter your name" autocomplete="off">
+      <label>Message</label>
+      <textarea name="message" rows="3" placeholder="Leave a message..."></textarea>
+      <button type="submit">Post Message</button>
+    </form>
+    <h2>Messages</h2>
+    {entries_html}
+    """
+    return vuln_page("Guestbook (Stored XSS)", body)
+
+
+# --- 4. Command Injection Ping ---
+@app.route("/vuln/ping", methods=["GET", "POST"])
+def vuln_ping_page():
+    result = ""
+    if request.method == "POST":
+        host = request.form.get("host", "")
+        if host:
+            # VULN: Command injection — user input passed to shell
+            cmd = f"ping -n 2 {host}" if os.name == "nt" else f"ping -c 2 {host}"
+            try:
+                output = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                result = f'<div class="result"><strong>Command:</strong> {cmd}<br><br><pre>{output.stdout}{output.stderr}</pre></div>'
+            except subprocess.TimeoutExpired:
+                result = '<div class="result error">Command timed out</div>'
+
+    body = f"""
+    <h1>🌐 Network Ping Utility</h1>
+    <p class="warning">💡 Try: <code>127.0.0.1 &amp; whoami</code> or <code>127.0.0.1 | dir</code></p>
+    <form method="POST" action="/vuln/ping">
+      <label>Host / IP Address</label>
+      <input type="text" name="host" placeholder="127.0.0.1" autocomplete="off">
+      <button type="submit">Ping</button>
+    </form>
+    {result}
+    """
+    return vuln_page("Command Injection (Ping)", body)
+
+
+# --- 5. Unrestricted File Upload ---
+@app.route("/vuln/upload", methods=["GET", "POST"])
+def vuln_upload_page():
+    result = ""
+    if request.method == "POST":
+        if "file" in request.files:
+            f = request.files["file"]
+            if f.filename:
+                # VULN: No file type validation, no filename sanitization
+                filepath = os.path.join(UPLOAD_FOLDER, f.filename)
+                f.save(filepath)
+                result = f'<div class="result">✅ File uploaded: <a href="/uploads/{f.filename}">{f.filename}</a></div>'
+
+    # List uploaded files
+    files_html = ""
+    if os.path.exists(UPLOAD_FOLDER):
+        files = os.listdir(UPLOAD_FOLDER)
+        if files:
+            files_html = "<h2>Uploaded Files</h2><ul>"
+            for fn in files:
+                files_html += f'<li><a href="/uploads/{fn}">{fn}</a></li>'
+            files_html += "</ul>"
+
+    body = f"""
+    <h1>📁 File Upload</h1>
+    <p class="warning">💡 No file type restrictions! Try uploading .php, .html, .py, .exe files</p>
+    <form method="POST" action="/vuln/upload" enctype="multipart/form-data">
+      <label>Choose File</label>
+      <input type="file" name="file">
+      <button type="submit">Upload</button>
+    </form>
+    {result}
+    {files_html}
+    """
+    return vuln_page("Unrestricted File Upload", body)
+
+
+# --- 6. Path Traversal Download ---
+@app.route("/vuln/download", methods=["GET"])
+def vuln_download_page():
+    filename = request.args.get("file", "")
+    result = ""
+    if filename:
+        # VULN: Path traversal — no sanitization
+        files_dir = os.path.join(os.path.dirname(__file__), "files")
+        filepath = os.path.join(files_dir, filename)
+        try:
+            with open(filepath, "r") as f:
+                content = f.read()
+            result = f'<div class="result"><strong>File: {filename}</strong><br><pre>{content}</pre></div>'
+        except FileNotFoundError:
+            result = f'<div class="result error">File not found: {filename}</div>'
+        except Exception as e:
+            result = f'<div class="result error">Error: {e}</div>'
+
+    body = f"""
+    <h1>📥 File Download</h1>
+    <p class="warning">💡 Try: <code>../app.py</code> or <code>../setup_db.py</code> or <code>../../../../etc/passwd</code></p>
+    <form method="GET" action="/vuln/download">
+      <label>Filename</label>
+      <input type="text" name="file" value="{filename}" placeholder="readme.txt" autocomplete="off">
+      <button type="submit">Download</button>
+    </form>
+    <p>Available files: <a href="/vuln/download?file=readme.txt">readme.txt</a> | <a href="/vuln/download?file=report.txt">report.txt</a></p>
+    {result}
+    """
+    return vuln_page("Path Traversal (Download)", body)
+
+
+# --- 7. Information Disclosure: Users ---
+@app.route("/vuln/users")
+def vuln_users_page():
+    db = get_db()
+    # VULN: Unauthenticated user data with password hashes
+    users = db.execute("SELECT id, name, email, phone, role, password_hash, created_at FROM users").fetchall()
+    rows_html = ""
+    for u in users:
+        rows_html += f"<tr><td>{u['id']}</td><td>{u['name']}</td><td>{u['email']}</td><td>{u['role']}</td><td><code>{u['password_hash'][:40]}...</code></td></tr>"
+
+    body = f"""
+    <h1>👥 User Directory</h1>
+    <p class="warning">⚠️ This page exposes all user data including password hashes — no authentication required!</p>
+    <table>
+      <tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Password Hash</th></tr>
+      {rows_html}
+    </table>
+    """
+    return vuln_page("Information Disclosure (Users)", body)
+
+
+# --- 8. Stored XSS + CSRF: Profile ---
+@app.route("/vuln/profile", methods=["GET", "POST"])
+def vuln_profile():
+    db = get_db()
+    result = ""
+    if request.method == "POST":
+        # VULN: CSRF — no token required. Also stored XSS via bio field.
+        name = request.form.get("name", "")
+        bio = request.form.get("bio", "")
+        password = request.form.get("new_password", "")
+        result = f'<div class="result">✅ Profile updated!<br><strong>Name:</strong> {name}<br><strong>Bio:</strong> {bio}</div>'
+        if password:
+            # VULN: No old password required for password change
+            result += f'<div class="result">🔑 Password changed (no old password required!)</div>'
+
+    body = f"""
+    <h1>👤 My Profile</h1>
+    <p class="warning">💡 No CSRF token! Bio field has stored XSS. Password change requires no old password.</p>
+    <form method="POST" action="/vuln/profile">
+      <label>Display Name</label>
+      <input type="text" name="name" placeholder="Your name" autocomplete="off">
+      <label>Bio (supports HTML!)</label>
+      <textarea name="bio" rows="3" placeholder="Tell us about yourself... try <img src=x onerror=alert(1)>"></textarea>
+      <label>New Password (no old password needed!)</label>
+      <input type="text" name="new_password" placeholder="New password" autocomplete="off">
+      <button type="submit">Update Profile</button>
+    </form>
+    {result}
+    """
+    return vuln_page("Profile (XSS + CSRF)", body)
+
+
+# --- 9. SSTI Page ---
+@app.route("/vuln/ssti", methods=["GET", "POST"])
+def vuln_ssti_page():
+    result = ""
+    if request.method == "POST":
+        name = request.form.get("name", "World")
+        # VULN: Server-Side Template Injection
+        try:
+            template = Template(f"Hello {name}! Welcome to Grand Hotel.")
+            rendered = template.render()
+            result = f'<div class="result">{rendered}</div>'
+        except Exception as e:
+            result = f'<div class="result error">Error: {e}</div>'
+
+    body = f"""
+    <h1>🎄 Greeting Card Generator</h1>
+    <p class="warning">💡 Try: <code>{{{{7*7}}}}</code> or <code>{{{{config.items()}}}}</code> or <code>{{{{self.__init__.__globals__}}}}</code></p>
+    <form method="POST" action="/vuln/ssti">
+      <label>Your Name</label>
+      <input type="text" name="name" placeholder="Enter your name" autocomplete="off">
+      <button type="submit">Generate Greeting</button>
+    </form>
+    {result}
+    """
+    return vuln_page("SSTI (Template Injection)", body)
+
+
+# --- 10. SSRF Page ---
+@app.route("/vuln/fetch", methods=["GET", "POST"])
+def vuln_fetch_page():
+    result = ""
+    if request.method == "POST":
+        url = request.form.get("url", "")
+        if url:
+            # VULN: SSRF — server fetches any URL
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "GrandHotel/1.0"})
+                response = urllib.request.urlopen(req, timeout=5)
+                content = response.read().decode("utf-8", errors="replace")[:5000]
+                result = f'<div class="result"><strong>URL:</strong> {url}<br><strong>Status:</strong> {response.status}<br><pre>{content}</pre></div>'
+            except Exception as e:
+                result = f'<div class="result error">Error fetching URL: {e}</div>'
+
+    body = f"""
+    <h1>🌍 URL Fetcher</h1>
+    <p class="warning">💡 Try: <code>http://169.254.169.254/latest/meta-data/</code> or <code>file:///etc/passwd</code></p>
+    <form method="POST" action="/vuln/fetch">
+      <label>URL to Fetch</label>
+      <input type="text" name="url" placeholder="https://example.com" autocomplete="off">
+      <button type="submit">Fetch</button>
+    </form>
+    {result}
+    """
+    return vuln_page("SSRF (URL Fetcher)", body)
+
+
+# --- 11. Weak Crypto Page ---
+@app.route("/vuln/crypto", methods=["GET", "POST"])
+def vuln_crypto_page():
+    result = ""
+    if request.method == "POST":
+        text = request.form.get("text", "")
+        method = request.form.get("method", "base64")
+        if text:
+            if method == "base64":
+                encrypted = base64.b64encode(text.encode()).decode()
+            elif method == "md5":
+                encrypted = stdlib_hashlib.md5(text.encode()).hexdigest()
+            elif method == "rot13":
+                encrypted = codecs.encode(text, "rot13")
+            elif method == "xor":
+                encrypted = base64.b64encode(bytes(ord(c) ^ 42 for c in text)).decode()
+            else:
+                encrypted = text
+            result = f'<div class="result"><strong>Method:</strong> {method}<br><strong>Input:</strong> {text}<br><strong>"Encrypted":</strong> <code>{encrypted}</code></div>'
+
+    body = f"""
+    <h1>🔐 Military-Grade Crypto Vault™</h1>
+    <p class="warning">💡 "Military grade" = base64 / md5 / rot13 / single-byte XOR. All trivially broken.</p>
+    <form method="POST" action="/vuln/crypto">
+      <label>Text to Encrypt</label>
+      <input type="text" name="text" placeholder="Enter secret text" autocomplete="off">
+      <label>Encryption Method</label>
+      <select name="method">
+        <option value="base64">AES-256 (actually Base64)</option>
+        <option value="md5">SHA-512 (actually MD5)</option>
+        <option value="rot13">RSA-4096 (actually ROT13)</option>
+        <option value="xor">Quantum Encryption (actually XOR with key=42)</option>
+      </select>
+      <button type="submit">Encrypt</button>
+    </form>
+    {result}
+    """
+    return vuln_page("Weak Cryptography", body)
+
+
+# --- 12. Open Redirect Page ---
+@app.route("/vuln/redirect")
+def vuln_redirect_page():
+    url = request.args.get("url", "")
+    if url and url != "/":
+        # VULN: Open redirect — no validation
+        return redirect(url)
+
+    body = """
+    <h1>🔗 URL Redirect Service</h1>
+    <p class="warning">💡 No URL validation! Try: <code>/vuln/redirect?url=https://evil.com</code></p>
+    <form method="GET" action="/vuln/redirect">
+      <label>Redirect URL</label>
+      <input type="text" name="url" placeholder="https://example.com" autocomplete="off">
+      <button type="submit">Redirect</button>
+    </form>
+    <p>Examples:</p>
+    <ul>
+      <li><a href="/vuln/redirect?url=https://google.com">/vuln/redirect?url=https://google.com</a></li>
+      <li><a href="/vuln/redirect?url=javascript:alert(1)">/vuln/redirect?url=javascript:alert(1)</a></li>
+    </ul>
+    """
+    return vuln_page("Open Redirect", body)
+
+
+# --- 13. IDOR Notes Page ---
+@app.route("/vuln/notes")
+def vuln_notes_page():
+    note_id = request.args.get("id", "")
+    result = ""
+    if note_id:
+        db = get_db()
+        # VULN: IDOR — no auth, anyone can read any note by ID
+        note = db.execute("SELECT n.*, u.name as author FROM notes n JOIN users u ON n.user_id = u.id WHERE n.id = ?", (note_id,)).fetchone()
+        if note:
+            result = f'<div class="result"><strong>{note["title"]}</strong> (by {note["author"]})<br><br>{note["content"]}</div>'
+        else:
+            result = '<div class="result error">Note not found</div>'
+
+    all_ids = ""
+    db = get_db()
+    notes = db.execute("SELECT id, title FROM notes").fetchall()
+    for n in notes:
+        all_ids += f'<li><a href="/vuln/notes?id={n["id"]}">{n["title"]} (ID: {n["id"]})</a></li>'
+
+    body = f"""
+    <h1>📒 Notes</h1>
+    <p class="warning">💡 IDOR — change the <code>id</code> parameter to read other users' private notes!</p>
+    <form method="GET" action="/vuln/notes">
+      <label>Note ID</label>
+      <input type="text" name="id" value="{note_id}" placeholder="1" autocomplete="off">
+      <button type="submit">View Note</button>
+    </form>
+    {result}
+    <h2>All Notes</h2>
+    <ul>{all_ids}</ul>
+    """
+    return vuln_page("IDOR (Notes)", body)
+
+
+# --- 14. Blind SQL Injection Page ---
+@app.route("/vuln/blind", methods=["GET"])
+def vuln_blind_page():
+    username = request.args.get("username", "")
+    result = ""
+    if username:
+        db = get_db()
+        # VULN: Blind SQL injection
+        query = f"SELECT COUNT(*) as c FROM users WHERE name = '{username}'"
+        try:
+            row = db.execute(query).fetchone()
+            exists = row["c"] > 0
+            result = f'<div class="result">Username "{username}": {"✅ EXISTS" if exists else "❌ NOT FOUND"}</div>'
+        except Exception as e:
+            result = f'<div class="result error">Error: {e}</div>'
+
+    body = f"""
+    <h1>🔍 Username Checker</h1>
+    <p class="warning">💡 Boolean-based blind SQLi. Try: <code>Admin' AND 1=1--</code> vs <code>Admin' AND 1=2--</code></p>
+    <form method="GET" action="/vuln/blind">
+      <label>Check Username</label>
+      <input type="text" name="username" value="{username}" placeholder="Admin" autocomplete="off">
+      <button type="submit">Check</button>
+    </form>
+    {result}
+    """
+    return vuln_page("Blind SQL Injection", body)
 
 
 # ─── Serve React app ─────────────────────────────────────────────────────────
