@@ -23,7 +23,8 @@ from flask import Flask, request, jsonify, g, send_from_directory, redirect, mak
 from jinja2 import Template
 from setup_db import init_db, DB_PATH, hash_password, verify_password
 
-app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="")
 app.secret_key = "super_secret_key_123"  # VULN: Hardcoded weak secret key
 
 CORS_HEADERS = {
@@ -1391,9 +1392,13 @@ def vuln_blind_page():
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
-    if path and os.path.exists(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, "index.html")
+    # If frontend isn't built, redirect to the vuln hub
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if not os.path.exists(index_path):
+        return redirect("/vuln")
+    if path and os.path.exists(os.path.join(STATIC_DIR, path)):
+        return send_from_directory(STATIC_DIR, path)
+    return send_from_directory(STATIC_DIR, "index.html")
 
 
 # ─── Init ─────────────────────────────────────────────────────────────────────

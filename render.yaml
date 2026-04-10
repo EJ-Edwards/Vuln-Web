@@ -2,7 +2,7 @@ services:
   - type: web
     name: grandhotel
     runtime: python
-    buildCommand: pip install -r requirements.txt && cd frontend && npm install && npm run build && cd .. && python setup_db.py
+    buildCommand: "pip install -r requirements.txt && (cd frontend && npm install && npm run build || true) && python setup_db.py"
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION
