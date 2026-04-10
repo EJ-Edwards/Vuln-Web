@@ -87,6 +87,58 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE guestbook (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            price REAL NOT NULL,
+            description TEXT,
+            internal_notes TEXT,
+            available INTEGER DEFAULT 1
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE coupons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE NOT NULL,
+            discount REAL NOT NULL,
+            max_uses INTEGER DEFAULT 1,
+            times_used INTEGER DEFAULT 0,
+            active INTEGER DEFAULT 1
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
     # Seed admin user
     admin_pw = hash_password("admin123")
     guest_pw = hash_password("guest123")
@@ -157,6 +209,46 @@ def init_db():
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (2, 1, "John Doe", "john@example.com", "+1-555-0101",
          "2026-04-15", "2026-04-18", 2, 389.97, "confirmed"),
+    )
+
+    # Seed guestbook
+    c.executemany(
+        "INSERT INTO guestbook (name, message) VALUES (?, ?)",
+        [
+            ("Alice", "Wonderful hotel! Had an amazing stay."),
+            ("Bob", "Great service, will come back again."),
+            ("Charlie", "The pool area is fantastic!"),
+        ],
+    )
+
+    # Seed notes (for IDOR - private notes per user)
+    c.executemany(
+        "INSERT INTO notes (user_id, title, content) VALUES (?, ?, ?)",
+        [
+            (1, "Admin Notes", "Server credentials: admin/s3cr3tP@ss. DB backup at /var/backups/hotel.sql"),
+            (1, "Secret Keys", "API Key: sk_live_4eC39HqLyjWDarjtT1zdp7dc. AWS Access Key: AKIAIOSFODNN7EXAMPLE"),
+            (2, "My Travel Plans", "Planning trip to Paris in June."),
+            (2, "Shopping List", "Buy sunscreen and travel adapter."),
+        ],
+    )
+
+    # Seed products (with internal notes for info disclosure)
+    c.executemany(
+        "INSERT INTO products (name, price, description, internal_notes) VALUES (?, ?, ?, ?)",
+        [
+            ("Spa Package", 150.00, "Full day spa treatment", "Cost: $30. Markup 400%. Don't tell customers."),
+            ("Room Upgrade", 75.00, "Upgrade to next room tier", "We usually give these for free to complainers."),
+            ("Airport Transfer", 50.00, "Luxury car to airport", "Outsourced to UberX. Actual cost: $12."),
+        ],
+    )
+
+    # Seed coupons (for race condition)
+    c.executemany(
+        "INSERT INTO coupons (code, discount, max_uses, times_used) VALUES (?, ?, ?, ?)",
+        [
+            ("WELCOME50", 50.00, 1, 0),
+            ("VIP100", 100.00, 1, 0),
+        ],
     )
 
     conn.commit()
