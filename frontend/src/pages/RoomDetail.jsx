@@ -200,10 +200,11 @@ export default function RoomDetail() {
                 {room.reviews?.map((r) => (
                   <div key={r.id} className="review-card">
                     <div className="review-header">
-                      <strong>{r.user_name}</strong>
+                      <strong dangerouslySetInnerHTML={{ __html: r.user_name }} />
                       <span className="review-stars">{"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)}</span>
                     </div>
-                    <p>{r.comment}</p>
+                    {/* VULN: Stored XSS — review comment rendered as raw HTML */}
+                    <p dangerouslySetInnerHTML={{ __html: r.comment }} />
                     <small>{new Date(r.created_at).toLocaleDateString()}</small>
                   </div>
                 ))}

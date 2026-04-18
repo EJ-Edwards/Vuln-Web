@@ -73,7 +73,8 @@ export default function MyBookings() {
                     <span>💰 ${b.total_price.toFixed(2)}</span>
                   </div>
                   {b.special_requests && (
-                    <p className="booking-requests">Note: {b.special_requests}</p>
+                    // VULN: Stored XSS — special_requests rendered as raw HTML
+                    <p className="booking-requests" dangerouslySetInnerHTML={{ __html: `Note: ${b.special_requests}` }} />
                   )}
                   <div className="booking-actions">
                     {b.status === "confirmed" && (

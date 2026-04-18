@@ -15,6 +15,14 @@ export default function Footer() {
           <Link to="/login">Login</Link>
         </div>
         <div className="footer-section">
+          <h4>Partners</h4>
+          {/* VULN [LOW]: target="_blank" without rel="noopener noreferrer" — reverse tabnabbing */}
+          {/* The opened page can access window.opener and redirect the original tab */}
+          <a href="https://travel-partners.example.com" target="_blank">Travel Partners</a>
+          <a href="https://luxury-rewards.example.com" target="_blank">Rewards Program</a>
+          <a href="https://hotel-reviews.example.com" target="_blank">Guest Reviews</a>
+        </div>
+        <div className="footer-section">
           <h4>Contact</h4>
           <p>123 Luxury Avenue</p>
           <p>Paradise City, PC 90210</p>
@@ -23,7 +31,9 @@ export default function Footer() {
         </div>
       </div>
       <div className="footer-bottom">
+        {/* VULN [LOW]: Version and technology info disclosed to client */}
         <p>&copy; 2026 Grand Hotel. All rights reserved.</p>
+        <p style={{ fontSize: "11px", color: "#555" }}>Powered by Flask 3.0.0 | React 19.2.4 | SQLite 3</p>
       </div>
     </footer>
   );

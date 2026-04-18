@@ -20,6 +20,7 @@ export default function Navbar() {
         <div className="nav-links">
           <Link to="/">Home</Link>
           <Link to="/rooms">Rooms</Link>
+          <Link to="/search">Search</Link>
           {user && <Link to="/bookings">My Bookings</Link>}
           {user?.role === "admin" && <Link to="/admin">Dashboard</Link>}
           {user ? (

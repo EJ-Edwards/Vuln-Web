@@ -18,7 +18,10 @@ export default function Login() {
       const user = await login(email, password);
       navigate(user.role === "admin" ? "/admin" : "/rooms");
     } catch (err) {
+      // VULN [MEDIUM]: Verbose error messages from API displayed directly to user
+      // Leaks SQL errors, stack traces, and internal query details on failed login
       setError(err.message);
+      console.error("[LOGIN ERROR] Full error details:", err);
     }
     setLoading(false);
   };

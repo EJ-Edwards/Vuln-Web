@@ -1,9 +1,16 @@
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:5000/api" : "/api");
 
+// VULN: Hardcoded API keys and credentials exposed in client-side JavaScript
+const INTERNAL_API_KEY = "sk_live_4eC39HqLyjWDarjtT1zdp7dc";
+const ADMIN_BACKUP_TOKEN = "admin_backup_eyJhbGciOiJIUzI1NiJ9.YWRtaW4.secret";
+const DB_CONNECTION_STRING = "postgresql://admin:P@ssw0rd123@db.grandhotel.internal:5432/hotel_prod";
+
 function getHeaders() {
   const headers = { "Content-Type": "application/json" };
   const token = localStorage.getItem("token");
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  // VULN: Internal API key sent with every request, visible in browser DevTools
+  headers["X-API-Key"] = INTERNAL_API_KEY;
   return headers;
 }
 
@@ -13,7 +20,12 @@ async function request(path, options = {}) {
     ...options,
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Something went wrong");
+  if (!res.ok) {
+    // VULN [MEDIUM]: Verbose error forwarding — passes raw server errors (SQL, stack traces) to caller
+    // Also logs full response including sensitive fields like "sql" and "query"
+    console.error(`[API ERROR] ${path}:`, JSON.stringify(data));
+    throw new Error(data.error || data.sql || data.query || "Something went wrong");
+  }
   return data;
 }
 

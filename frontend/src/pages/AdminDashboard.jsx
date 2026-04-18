@@ -4,6 +4,8 @@ import { api } from "../api/api";
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [customQuery, setCustomQuery] = useState("");
+  const [queryResult, setQueryResult] = useState(null);
 
   useEffect(() => {
     loadStats();
@@ -25,6 +27,17 @@ export default function AdminDashboard() {
       loadStats();
     } catch {
       // ignore
+    }
+  };
+
+  // VULN: eval() used for "advanced analytics" — executes arbitrary JavaScript
+  const handleCustomQuery = (e) => {
+    e.preventDefault();
+    try {
+      const result = eval(customQuery);
+      setQueryResult(JSON.stringify(result, null, 2));
+    } catch (err) {
+      setQueryResult(`Error: ${err.message}`);
     }
   };
 
@@ -78,6 +91,26 @@ export default function AdminDashboard() {
         </div>
 
         <div className="admin-section">
+          <h2>Advanced Analytics Console</h2>
+          <p style={{ color: "#999", fontSize: "14px" }}>Run custom analytics expressions</p>
+          <form onSubmit={handleCustomQuery} style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+            <input
+              type="text"
+              value={customQuery}
+              onChange={(e) => setCustomQuery(e.target.value)}
+              placeholder="e.g. stats.total_revenue * 0.1"
+              style={{ flex: 1 }}
+            />
+            <button type="submit" className="btn btn-primary">Run</button>
+          </form>
+          {queryResult && (
+            <pre style={{ background: "#1a1a1a", padding: "12px", borderRadius: "8px", whiteSpace: "pre-wrap" }}>
+              {queryResult}
+            </pre>
+          )}
+        </div>
+
+        <div className="admin-section">
           <h2>Recent Bookings</h2>
           <div className="table-wrapper">
             <table className="admin-table">
@@ -97,7 +130,8 @@ export default function AdminDashboard() {
                 {stats.recent_bookings.map((b) => (
                   <tr key={b.id}>
                     <td>#{b.id}</td>
-                    <td>{b.user_name}</td>
+                    {/* VULN: Stored XSS — user_name rendered as HTML */}
+                    <td dangerouslySetInnerHTML={{ __html: b.user_name }} />
                     <td>{b.room_name}</td>
                     <td>{b.check_in}</td>
                     <td>{b.check_out}</td>

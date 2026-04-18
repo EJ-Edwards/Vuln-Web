@@ -329,12 +329,18 @@ def create_booking():
     nights = (co - ci).days
     total_price = round(nights * room["price_per_night"], 2)
 
+    # VULN: Mass assignment — client can override total_price and status
+    # Exploit: add "total_price": 0.01 or "status": "checked_out" to request body
+    if "total_price" in data:
+        total_price = data["total_price"]
+    status = data.get("status", "confirmed")
+
     db.execute(
         """INSERT INTO bookings (user_id, room_id, guest_name, guest_email, guest_phone,
-           check_in, check_out, num_guests, special_requests, total_price)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           check_in, check_out, num_guests, special_requests, total_price, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (g.user["id"], room_id, g.user["name"], g.user["email"],
-         g.user.get("phone", ""), check_in, check_out, num_guests, special_requests, total_price),
+         g.user.get("phone", ""), check_in, check_out, num_guests, special_requests, total_price, status),
     )
     db.commit()
 
